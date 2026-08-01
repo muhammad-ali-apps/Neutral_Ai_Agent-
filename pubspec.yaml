@@ -1,0 +1,53 @@
+name: neuroroute_ui
+description: NeuroRoute - AI Router UI (design-only, no LLM/backend integration)
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Used only for the attach-icon (Camera / Screenshot / Project) in the chat
+  # input bar. These open the device camera / gallery / file system — they do
+  # NOT connect to any LLM or backend.
+  image_picker: ^1.1.2
+  file_picker: ^8.1.2
+  animated_text_kit: ^4.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  # ---------------------------------------------------------------------
+  # ASSETS
+  # Drop your own images/illustrations into assets/images/ and they will
+  # be picked up automatically (folder is already declared below).
+  # ---------------------------------------------------------------------
+  assets:
+    - assets/images/
+
+  # ---------------------------------------------------------------------
+  # CUSTOM FONTS
+  # 1. Copy your .ttf / .otf files into assets/fonts/
+  # 2. Uncomment and edit the block below to match your font's family name
+  #    and the weight/style of each file you add.
+  # 3. Then set it as your app-wide font in lib/app_theme.dart by adding
+  #    `fontFamily: 'YourFontName'` to both ThemeData.copyWith calls.
+  #
+  # fonts:
+  #   - family: YourFontName
+  #     fonts:
+  #       - asset: assets/fonts/YourFontName-Regular.ttf
+  #       - asset: assets/fonts/YourFontName-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/YourFontName-Bold.ttf
+  #         weight: 700
+  # ---------------------------------------------------------------------
