@@ -1,4 +1,4 @@
-# NeuroRoute UI (Flutter — design-only prototype)
+# Neutral AI Agent UI (Flutter — design-only prototype)
 
 This is a **UI-only** Flutter project for the NeuroRoute FYP. No LLM/backend
 API is connected anywhere. The only "real" functionality is the device
