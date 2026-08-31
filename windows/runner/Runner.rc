@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "neutral" "\0"
+            VALUE "FileDescription", "neural" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "neutral" "\0"
+            VALUE "InternalName", "neural" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "neutral.exe" "\0"
-            VALUE "ProductName", "neutral" "\0"
+            VALUE "OriginalFilename", "neural.exe" "\0"
+            VALUE "ProductName", "neural" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

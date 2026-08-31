@@ -4,6 +4,9 @@ import '../../widgets/home_shell.dart';
 import 'auth_widgets.dart';
 import 'forgot_password_screen.dart';
 import 'signup_screen.dart';
+import '../../services/api_services.dart';
+import 'package:go_router/go_router.dart';
+
 
 /// Login screen with form validation.
 class LoginScreen extends StatefulWidget {
@@ -29,15 +32,30 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() {
+  void _login() async {
     if (!_formKey.currentState!.validate()) return;
+    
     setState(() => _loading = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (_) => HomeShell(isDarkMode: widget.isDarkMode, onToggleTheme: widget.onToggleTheme),
-      ));
-    });
+
+    bool success = await ApiService.loginUser(
+      _emailCtrl.text.trim(),
+      _passwordCtrl.text,
+    );
+
+    if (!mounted) return;
+    
+    setState(() => _loading = false);
+    print("user success : $success");
+    if (success) {
+      context.go('/home');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Login failed. Please check your credentials.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
@@ -55,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: context.textPrimary, fontSize: 19, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
-            // Text('Log in to continue to Neutral AI Agent',
+            // Text('Log in to continue to Neural AI Agent',
             //     textAlign: TextAlign.center,
             //     style: TextStyle(color: context.textSecondary, fontSize: 13)),
             const SizedBox(height: 26),

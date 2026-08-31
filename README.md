@@ -1,4 +1,4 @@
-# Neutral Route Ai Agent
+# Neural Route Ai Agent
 
 **AI Smart Routing Platform — Modern Flutter Interface**
 
@@ -6,7 +6,7 @@ A Final Year Project (FYP) delivering a polished, production-oriented Flutter UI
 
 | Item | Detail |
 |------|--------|
-| **Project name** | Neutral Route Ai Agent |
+| **Project name** | Neural Route Ai Agent |
 | **Subtitle** | AI Smart Routing Platform |
 | **Platform** | Flutter (Dart 3) — Android, iOS, Web, Desktop |
 | **Current phase** | UI / UX prototype (no live LLM or auth backend) |
@@ -52,7 +52,7 @@ A Final Year Project (FYP) delivering a polished, production-oriented Flutter UI
 
 ## 1. Project Overview
 
-**Neutral Route Ai Agent** is a Flutter-based client for an AI routing platform. Instead of forcing a user to pick a single large language model for every task, the product concept is to **inspect the prompt**, classify intent, and **route** the request to the most suitable provider (OpenAI, Anthropic, Google Gemini, DeepSeek, local Ollama models, and others).
+**Neural Route Ai Agent** is a Flutter-based client for an AI routing platform. Instead of forcing a user to pick a single large language model for every task, the product concept is to **inspect the prompt**, classify intent, and **route** the request to the most suitable provider (OpenAI, Anthropic, Google Gemini, DeepSeek, local Ollama models, and others).
 
 This repository contains the **front-end prototype** built for a university Final Year Project. It demonstrates:
 

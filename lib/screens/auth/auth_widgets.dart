@@ -69,7 +69,7 @@ class AuthLogo extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Neutral',
+          'Neural',
           style: TextStyle(
             color: context.textPrimary,
             fontWeight: FontWeight.w700,

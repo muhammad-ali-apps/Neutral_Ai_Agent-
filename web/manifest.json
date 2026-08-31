@@ -1,6 +1,6 @@
 {
-    "name": "neutral",
-    "short_name": "neutral",
+    "name": "neural",
+    "short_name": "neural",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

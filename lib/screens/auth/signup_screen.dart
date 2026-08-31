@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../app_theme.dart';
 import 'auth_widgets.dart';
-import 'otp_screen.dart';
+// import 'otp_screen.dart';
+import 'login_screen.dart';
+import '../../services/api_services.dart';
 
 /// Signup screen with form validation.
 class SignupScreen extends StatefulWidget {
@@ -34,23 +36,46 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  void _signup() {
+  void _signup() async {
     final formValid = _formKey.currentState!.validate();
     setState(() => _agreeError = !_agree);
     if (!formValid || !_agree) return;
 
     setState(() => _loading = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
+    bool isSuccess = await ApiService.registerUser(
+      _nameCtrl.text,
+      _emailCtrl.text,
+      _passwordCtrl.text,
+    );
+    if(isSuccess){
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Account Created Successfully!")),
+      );
       if (!mounted) return;
       setState(() => _loading = false);
       Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => OtpScreen(
-          purpose: OtpPurpose.signupVerification,
+        builder: (_) => LoginScreen(
           isDarkMode: widget.isDarkMode,
           onToggleTheme: widget.onToggleTheme,
-        ),
-      ));
-    });
+         ),
+       ));
+    }else{
+      setState(()=> _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to create account")),
+      );
+    }
+    // Future.delayed(const Duration(milliseconds: 700), () {
+    //   if (!mounted) return;
+    //   setState(() => _loading = false);
+    //   Navigator.of(context).push(MaterialPageRoute(
+    //     builder: (_) => OtpScreen(
+    //       purpose: OtpPurpose.signupVerification,
+    //       isDarkMode: widget.isDarkMode,
+    //       onToggleTheme: widget.onToggleTheme,
+    //     ),
+    //   ));
+    // });
   }
 
   @override
@@ -74,14 +99,14 @@ class _SignupScreenState extends State<SignupScreen> {
             const SizedBox(height: 26),
             AuthTextField(
               label: 'Full Name',
-              hint: 'Muhammad Ali',
+              hint: 'John Doe',
               icon: Icons.person_outline_rounded,
               controller: _nameCtrl,
               validator: (v) => AuthValidators.required(v, field: 'Full name'),
             ),
             AuthTextField(
               label: 'Email',
-              hint: 'opcodedevelopers@gmail.com',
+              hint: 'john.doe@example.com',
               icon: Icons.mail_outline_rounded,
               controller: _emailCtrl,
               keyboardType: TextInputType.emailAddress,
