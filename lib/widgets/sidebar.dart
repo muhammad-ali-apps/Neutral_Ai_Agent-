@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../app_theme.dart';
 import '../models.dart';
+import '../services/api_services.dart';
 
 class NavItem {
   final IconData icon;
@@ -209,6 +211,7 @@ class Sidebar extends StatelessWidget {
       ),
     );
   }
+
 }
 
 /// Compact history list scoped to one chat mode.
@@ -546,9 +549,41 @@ class _DeleteConfirmRow extends StatelessWidget {
   }
 }
 
-class _AccountTile extends StatelessWidget {
+class _AccountTile extends StatefulWidget {
   final VoidCallback onLogout;
+
   const _AccountTile({required this.onLogout});
+
+  @override
+  State<_AccountTile> createState() => _AccountTileState();
+}
+
+class _AccountTileState extends State<_AccountTile> {
+  String userName = 'Loading...';
+  String email = 'Loading...';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      userName = prefs.getString('userName') ?? 'Guest User';
+      email = prefs.getString('userEmail') ?? 'guest@example.com';
+    });
+  }
+
+  String getInitials(String name) {
+    if (name.isEmpty) return '';
+    List<String> nameParts = name.trim().split(' ');
+    if (nameParts.length > 1) {
+      return '${nameParts[0][0]}${nameParts[1][0]}'.toUpperCase();
+    }
+    return name.isNotEmpty ? name.substring(0, 1).toUpperCase() : '';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -568,8 +603,8 @@ class _AccountTile extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Text(
-              'MA',
+            child: Text(
+              getInitials(userName),
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11),
             ),
           ),
@@ -580,7 +615,7 @@ class _AccountTile extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Muhammad Ali',
+                  userName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -590,7 +625,7 @@ class _AccountTile extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'muhammad.ali@example.com',
+                  email,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: context.textSecondary, fontSize: 10),
@@ -600,7 +635,19 @@ class _AccountTile extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Logout',
-            onPressed: onLogout,
+            onPressed: () async {
+              // Call API to logout
+              bool success = await ApiService.logoutUser();
+              if (success) {
+                // Ignore context warnings across async gaps using mounted check
+                if (!mounted) return;
+                // Redirect to login
+                Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+              }
+              
+              // Also call the callback provided by the parent if needed
+              widget.onLogout();
+            },
             iconSize: 18,
             padding: const EdgeInsets.all(6),
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),

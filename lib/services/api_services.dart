@@ -79,6 +79,10 @@ class ApiService{
         },
         );
         if (response.statusCode == 200 || response.statusCode == 201) {
+            var responseData = json.decode(response.body);
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('userName', responseData['name']);
+            await prefs.setString('userEmail', responseData['email']);
             print('User is logged in: ${response.body}');
             return true;
         } else {
@@ -89,5 +93,32 @@ class ApiService{
         print('Error: $e');
         return false;
     }
+    }
+    
+    static Future<bool> logoutUser() async {
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        String? token = prefs.getString('token');
+        try {
+            final response = await http.post(
+                Uri.parse('$baseUrl/auth/logout'),
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': 'Bearer $token',
+                },
+            );
+            if (response.statusCode == 200 || response.statusCode == 201) {
+                await prefs.remove('token');
+                await prefs.remove('userName');
+                await prefs.remove('userEmail');
+                return true;
+            } else {
+                print('Logout failed: ${response.body}');
+                return false;
+            }
+        } catch (e) {
+            print('Error during logout: $e');
+            return false;
+        }
     }
 }
