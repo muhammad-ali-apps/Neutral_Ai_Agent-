@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app_theme.dart';
 import '../models.dart';
 import '../services/api_services.dart';
+import 'package:go_router/go_router.dart';
 
 class NavItem {
   final IconData icon;
@@ -642,7 +643,7 @@ class _AccountTileState extends State<_AccountTile> {
                 // Ignore context warnings across async gaps using mounted check
                 if (!mounted) return;
                 // Redirect to login
-                Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+                context.go('/login');
               }
               
               // Also call the callback provided by the parent if needed
