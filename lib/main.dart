@@ -5,6 +5,7 @@ import 'services/api_services.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
 import 'widgets/home_shell.dart';
+import 'screens/admin_panel_screen.dart';
 
 void main() {
   runApp(const NeuroRouteApp());
@@ -72,7 +73,13 @@ class _NeuroRouteAppState extends State<NeuroRouteApp> {
       GoRoute(
         path: '/home',
         builder: (BuildContext context, GoRouterState state) {
-          return  HomeShell(isDarkMode: false, onToggleTheme: () {});
+          return  HomeShell(isDarkMode: _isDarkMode, onToggleTheme: _toggleTheme);
+        },
+      ),
+      GoRoute(
+        path: '/admin-panel',
+        builder: (BuildContext context, GoRouterState state) {
+          return  HomeShell(isDarkMode: _isDarkMode, onToggleTheme: _toggleTheme, startWithAdmin: true);
         },
       ),
     ],

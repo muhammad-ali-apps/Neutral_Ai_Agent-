@@ -201,7 +201,7 @@ class Sidebar extends StatelessWidget {
             label: 'Admin Panel',
             selected: adminSelected,
             onTap: () {
-              onAdminTap();
+              context.go('/admin-panel');
               onClose?.call();
             },
           ),

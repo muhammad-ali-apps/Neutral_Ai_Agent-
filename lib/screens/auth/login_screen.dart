@@ -110,10 +110,6 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 8),
             AuthPrimaryButton(label: 'Log In', onPressed: _login, loading: _loading),
             const SizedBox(height: 22),
-            const AuthDivider(),
-            const SizedBox(height: 16),
-            const SocialSignInRow(),
-            const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [

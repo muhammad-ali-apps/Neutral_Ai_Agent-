@@ -7,12 +7,19 @@ import '../screens/comparison_screen.dart';
 import '../screens/offline_mode_screen.dart';
 import '../screens/smart_routing_screen.dart';
 import 'sidebar.dart';
+import 'package:go_router/go_router.dart';
 
 /// Root shell with responsive sidebar and mode navigation.
 class HomeShell extends StatefulWidget {
   final bool isDarkMode;
   final VoidCallback onToggleTheme;
-  const HomeShell({super.key, required this.isDarkMode, required this.onToggleTheme});
+  final bool startWithAdmin;
+  const HomeShell({
+    super.key, 
+    required this.isDarkMode, 
+    required this.onToggleTheme,
+    this.startWithAdmin = false,
+  });
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -20,7 +27,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
-  bool _adminSelected = false;
+  late bool _adminSelected = widget.startWithAdmin;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   final _smartKey = GlobalKey<SmartRoutingScreenState>();
@@ -147,11 +154,21 @@ class _HomeShellState extends State<HomeShell> {
         onNewChat: _newChat,
         activeSessionId: _activeSessionId,
         onSelectSession: _openSession,
-        onSelect: (i) => setState(() {
-          _index = i;
-          _adminSelected = false;
-        }),
-        onAdminTap: () => setState(() => _adminSelected = true),
+        onSelect: (i) {
+          if (widget.startWithAdmin) {
+            context.go('/home');
+          } else {
+            setState(() {
+              _index = i;
+              _adminSelected = false;
+            });
+          }
+        },
+        onAdminTap: () {
+          if (!widget.startWithAdmin) {
+            context.go('/admin-panel');
+          }
+        },
         onClose: isMobile ? () => Navigator.of(context).maybePop() : null,
       );
 
