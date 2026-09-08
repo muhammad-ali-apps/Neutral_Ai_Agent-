@@ -1,16 +1,86 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'services/api_services.dart';
+
+/// Provider enum matching backend values.
+enum LlmProvider {
+  openai,
+  gemini,
+  anthropic,
+  ollama,
+  custom;
+
+  /// Display name for the UI.
+  String get displayName {
+    switch (this) {
+      case LlmProvider.openai:
+        return 'OpenAI';
+      case LlmProvider.gemini:
+        return 'Google Gemini';
+      case LlmProvider.anthropic:
+        return 'Anthropic Claude';
+      case LlmProvider.ollama:
+        return 'Ollama (Local)';
+      case LlmProvider.custom:
+        return 'Custom API';
+    }
+  }
+
+  /// Badge letter for circle avatar.
+  String get letter {
+    switch (this) {
+      case LlmProvider.openai:
+        return 'O';
+      case LlmProvider.gemini:
+        return 'G';
+      case LlmProvider.anthropic:
+        return 'A';
+      case LlmProvider.ollama:
+        return 'O';
+      case LlmProvider.custom:
+        return 'C';
+    }
+  }
+
+  /// Default color for the provider badge.
+  Color get color {
+    switch (this) {
+      case LlmProvider.openai:
+        return AppColors.openaiGreen;
+      case LlmProvider.gemini:
+        return AppColors.geminiBlue;
+      case LlmProvider.anthropic:
+        return AppColors.anthropicOrange;
+      case LlmProvider.ollama:
+        return AppColors.deepseekGray;
+      case LlmProvider.custom:
+        return AppColors.purple;
+    }
+  }
+
+  /// Convert from backend string (e.g. "openai") to enum.
+  static LlmProvider fromString(String value) {
+    return LlmProvider.values.firstWhere(
+      (e) => e.name == value.toLowerCase(),
+      orElse: () => LlmProvider.custom,
+    );
+  }
+}
 
 /// LLM model entry used across Comparison, Admin, and Smart Routing.
 class LlmModel {
   final String id;
   String name;
-  String provider;
-  String modelCode;
+  String provider;       // backend enum string: openai, gemini, etc.
+  String modelCode;      // model_id in backend
   String badgeLetter;
   Color color;
-  List<String> tags;
-  bool active;
+  List<String> tags;     // routing_tags in backend
+  bool active;           // is_active in backend
+  String? apiKey;
+  String? endpointUrl;
+  String? description;
+  String? iconColor;
 
   LlmModel({
     required this.id,
@@ -21,79 +91,169 @@ class LlmModel {
     required this.color,
     required this.tags,
     this.active = true,
+    this.apiKey,
+    this.endpointUrl,
+    this.description,
+    this.iconColor,
   });
+
+  /// Create from backend JSON response.
+  factory LlmModel.fromJson(Map<String, dynamic> json) {
+    final providerStr = (json['provider'] ?? 'custom').toString();
+    final providerEnum = LlmProvider.fromString(providerStr);
+
+    // Parse icon_color if present, otherwise use provider default
+    Color modelColor = providerEnum.color;
+    if (json['icon_color'] != null && json['icon_color'].toString().isNotEmpty) {
+      try {
+        final hex = json['icon_color'].toString().replaceFirst('#', '');
+        modelColor = Color(int.parse('FF$hex', radix: 16));
+      } catch (_) {}
+    }
+
+    // Handle MongoDB _id field
+    final id = json['_id'] is Map ? json['_id']['\$oid'] ?? json['_id'].toString() : (json['_id'] ?? json['id'] ?? '').toString();
+
+    return LlmModel(
+      id: id,
+      name: json['name'] ?? '',
+      provider: providerStr,
+      modelCode: json['model_id'] ?? '',
+      badgeLetter: providerEnum.letter,
+      color: modelColor,
+      tags: json['routing_tags'] != null
+          ? List<String>.from(json['routing_tags'])
+          : [],
+      active: json['is_active'] ?? true,
+      apiKey: json['api_key'],
+      endpointUrl: json['endpoint_url'],
+      description: json['description'],
+      iconColor: json['icon_color'],
+    );
+  }
+
+  /// Convert to JSON for API requests.
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'provider': provider,
+      'model_id': modelCode,
+      if (apiKey != null && apiKey!.isNotEmpty) 'api_key': apiKey,
+      if (endpointUrl != null) 'endpoint_url': endpointUrl,
+      'routing_tags': tags,
+      'is_active': active,
+      if (description != null) 'description': description,
+      if (iconColor != null) 'icon_color': iconColor,
+    };
+  }
 }
 
-List<LlmModel> _seedModels() => [
-      LlmModel(
-        id: 'deepseek',
-        name: 'Deep Seek',
-        provider: 'Custom API',
-        modelCode: 'Deepseek3.0',
-        badgeLetter: 'D',
-        color: AppColors.deepseekGray,
-        tags: ['science'],
-        active: false,
-      ),
-      LlmModel(
-        id: 'gpt4o',
-        name: 'GPT-4o',
-        provider: 'OpenAI',
-        modelCode: 'gpt-4o',
-        badgeLetter: 'G',
-        color: AppColors.openaiGreen,
-        tags: ['reasoning', 'general', 'coding'],
-      ),
-      LlmModel(
-        id: 'gpt35',
-        name: 'GPT-3.5 Turbo',
-        provider: 'OpenAI',
-        modelCode: 'gpt-3.5-turbo',
-        badgeLetter: 'G',
-        color: AppColors.openaiGreen,
-        tags: ['general', 'creative'],
-      ),
-      LlmModel(
-        id: 'gemini',
-        name: 'Gemini 1.5 Pro',
-        provider: 'Gemini',
-        modelCode: 'gemini-1.5-pro',
-        badgeLetter: 'G',
-        color: AppColors.geminiBlue,
-        tags: ['reasoning', 'multimodal'],
-      ),
-      LlmModel(
-        id: 'claude',
-        name: 'Claude 3.5 Sonnet',
-        provider: 'Anthropic',
-        modelCode: 'claude-3.5-sonnet',
-        badgeLetter: 'C',
-        color: AppColors.anthropicOrange,
-        tags: ['reasoning', 'coding', 'writing'],
-      ),
-    ];
-
-/// Shared model store; Admin mutates, other screens listen.
+/// Shared model store; Admin mutates via API, other screens listen.
 class ModelStore extends ChangeNotifier {
-  final List<LlmModel> models = _seedModels();
+  List<LlmModel> models = [];
+  bool isLoading = false;
+  String? errorMessage;
 
   List<LlmModel> get active => models.where((m) => m.active).toList();
 
-  void add(LlmModel model) {
-    models.add(model);
+  /// Fetch all models from backend API.
+  Future<void> loadFromApi() async {
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final result = await ApiService.fetchLlmModels();
+      if (result != null) {
+        models = result.map((json) => LlmModel.fromJson(json)).toList();
+        errorMessage = null;
+      } else {
+        errorMessage = 'Failed to load models';
+      }
+    } catch (e) {
+      errorMessage = 'Error: $e';
+      print('ModelStore.loadFromApi error: $e');
+    }
+
+    isLoading = false;
     notifyListeners();
   }
 
-  void remove(String id) {
-    models.removeWhere((m) => m.id == id);
-    notifyListeners();
+  /// Add a new model via API.
+  Future<bool> addViaApi(Map<String, dynamic> data) async {
+    try {
+      final result = await ApiService.createLlmModel(data);
+      if (result != null) {
+        models.insert(0, LlmModel.fromJson(result));
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      print('ModelStore.addViaApi error: $e');
+    }
+    return false;
   }
 
-  void toggleActive(String id) {
-    final m = models.where((e) => e.id == id).cast<LlmModel?>().firstOrNull;
-    if (m == null) return;
-    m.active = !m.active;
+  /// Update an existing model via API.
+  Future<bool> updateViaApi(String id, Map<String, dynamic> data) async {
+    try {
+      final result = await ApiService.updateLlmModel(id, data);
+      if (result != null) {
+        final idx = models.indexWhere((m) => m.id == id);
+        if (idx >= 0) {
+          models[idx] = LlmModel.fromJson(result);
+        }
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      print('ModelStore.updateViaApi error: $e');
+    }
+    return false;
+  }
+
+  /// Toggle active status via API.
+  Future<bool> toggleActiveViaApi(String id) async {
+    final model = models.where((m) => m.id == id).cast<LlmModel?>().firstOrNull;
+    if (model == null) return false;
+
+    final newActive = !model.active;
+
+    // Optimistic update
+    model.active = newActive;
     notifyListeners();
+
+    try {
+      final result = await ApiService.updateLlmModel(id, {'is_active': newActive});
+      if (result != null) {
+        return true;
+      } else {
+        // Revert on failure
+        model.active = !newActive;
+        notifyListeners();
+      }
+    } catch (e) {
+      // Revert on error
+      model.active = !newActive;
+      notifyListeners();
+      print('ModelStore.toggleActiveViaApi error: $e');
+    }
+    return false;
+  }
+
+  /// Delete a model via API.
+  Future<bool> deleteViaApi(String id) async {
+    try {
+      final success = await ApiService.deleteLlmModel(id);
+      if (success) {
+        models.removeWhere((m) => m.id == id);
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      print('ModelStore.deleteViaApi error: $e');
+    }
+    return false;
   }
 
   void refresh() => notifyListeners();

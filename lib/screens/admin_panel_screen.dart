@@ -13,6 +13,15 @@ class AdminPanelScreen extends StatefulWidget {
 }
 
 class _AdminPanelScreenState extends State<AdminPanelScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Load models from API on first open
+    if (modelStore.models.isEmpty && !modelStore.isLoading) {
+      modelStore.loadFromApi();
+    }
+  }
+
   void _openModelPanel({LlmModel? existingModel}) {
     showGeneralDialog(
       context: context,
@@ -98,9 +107,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 child: SizedBox(
                   height: 40,
                   child: ElevatedButton(
-                    onPressed: () {
-                      modelStore.remove(model.id);
+                    onPressed: () async {
                       Navigator.pop(ctx);
+                      final success = await modelStore.deleteViaApi(model.id);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(success ? '${model.name} deleted' : 'Failed to delete model'),
+                          backgroundColor: success ? AppColors.success : Colors.redAccent,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ));
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.redAccent,
@@ -155,70 +172,176 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               ),
             ),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LayoutBuilder(builder: (context, constraints) {
-                      final wide = constraints.maxWidth > 600;
-                      final stats = [
-                        _StatCard(value: '${models.length}', label: 'Total Models'),
-                        _StatCard(value: '$active', label: 'Active'),
-                        _StatCard(value: '$providers', label: 'Providers'),
-                      ];
-                      if (wide) {
-                        return Row(
-                          children: stats
-                              .map((s) => Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(right: 10),
-                                      child: s,
-                                    ),
-                                  ))
-                              .toList(),
-                        );
-                      }
-                      return Column(
-                        children: stats
-                            .map((s) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: s,
-                                ))
-                            .toList(),
-                      );
-                    }),
-                    const SizedBox(height: 16),
-                    ...models.map((m) => _ModelRow(
-                          model: m,
-                          onToggle: () => modelStore.toggleActive(m.id),
-                          onDelete: () => _confirmDelete(m),
-                          onEdit: () => _openModelPanel(existingModel: m),
-                        )),
-                  ],
-                ),
-              ),
+              child: modelStore.isLoading
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: AppColors.purple),
+                          SizedBox(height: 16),
+                          Text(
+                            'Loading models...',
+                            style: TextStyle(color: AppColors.purple, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    )
+                  : modelStore.errorMessage != null
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.cloud_off_rounded, color: context.textSecondary, size: 48),
+                              const SizedBox(height: 12),
+                              Text(
+                                modelStore.errorMessage!,
+                                style: TextStyle(color: context.textSecondary, fontSize: 13),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                onPressed: () => modelStore.loadFromApi(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.purple,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.refresh_rounded, size: 16),
+                                label: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              LayoutBuilder(builder: (context, constraints) {
+                                final wide = constraints.maxWidth > 600;
+                                final stats = [
+                                  _StatCard(value: '${models.length}', label: 'Total Models'),
+                                  _StatCard(value: '$active', label: 'Active'),
+                                  _StatCard(value: '$providers', label: 'Providers'),
+                                ];
+                                if (wide) {
+                                  return Row(
+                                    children: stats
+                                        .map((s) => Expanded(
+                                              child: Padding(
+                                                padding: const EdgeInsets.only(right: 10),
+                                                child: s,
+                                              ),
+                                            ))
+                                        .toList(),
+                                  );
+                                }
+                                return Column(
+                                  children: stats
+                                      .map((s) => Padding(
+                                            padding: const EdgeInsets.only(bottom: 10),
+                                            child: s,
+                                          ))
+                                      .toList(),
+                                );
+                              }),
+                              const SizedBox(height: 16),
+                              if (models.isEmpty)
+                                _EmptyState(onAdd: () => _openModelPanel()),
+                              ...models.map((m) => _ModelRow(
+                                    model: m,
+                                    onToggle: () async {
+                                      final success = await modelStore.toggleActiveViaApi(m.id);
+                                      if (mounted && !success) {
+                                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                          content: const Text('Failed to toggle model status'),
+                                          backgroundColor: Colors.redAccent,
+                                          behavior: SnackBarBehavior.floating,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ));
+                                      }
+                                    },
+                                    onDelete: () => _confirmDelete(m),
+                                    onEdit: () => _openModelPanel(existingModel: m),
+                                  )),
+                            ],
+                          ),
+                        ),
             ),
           ],
         );
       },
     );
   }
-
 }
 
 // ─────────────────────────────────────────────────────────────
-// Add LLM Integration — Right Slide-In Panel
+// Empty State
+// ─────────────────────────────────────────────────────────────
+
+class _EmptyState extends StatelessWidget {
+  final VoidCallback onAdd;
+  const _EmptyState({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+      decoration: BoxDecoration(
+        color: context.surface2,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.hub_outlined, color: context.textSecondary, size: 48),
+          const SizedBox(height: 12),
+          Text(
+            'No models configured yet',
+            style: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Add your first LLM integration to get started',
+            style: TextStyle(color: context.textSecondary, fontSize: 12.5),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 36,
+            child: ElevatedButton.icon(
+              onPressed: onAdd,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.purple,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Add Model', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Add / Edit LLM Integration — Right Slide-In Panel
 // ─────────────────────────────────────────────────────────────
 
 class _ProviderOption {
-  final String name;
+  final String name;        // UI display name
+  final String backendKey;  // backend enum value
   final String subtitle;
   final String letter;
   final Color color;
 
   const _ProviderOption({
     required this.name,
+    required this.backendKey,
     required this.subtitle,
     required this.letter,
     required this.color,
@@ -226,11 +349,11 @@ class _ProviderOption {
 }
 
 const _providers = <_ProviderOption>[
-  _ProviderOption(name: 'OpenAI', subtitle: 'GPT-4, GPT-3.5-turbo', letter: 'O', color: AppColors.openaiGreen),
-  _ProviderOption(name: 'Google Gemini', subtitle: 'Gemini Pro, Gemini Ultra', letter: 'G', color: AppColors.geminiBlue),
-  _ProviderOption(name: 'Anthropic Claude', subtitle: 'Claude 3, Claude 2', letter: 'A', color: AppColors.anthropicOrange),
-  _ProviderOption(name: 'Ollama (Local)', subtitle: 'Llama, Mistral, etc.', letter: 'O', color: AppColors.deepseekGray),
-  _ProviderOption(name: 'Custom API', subtitle: 'Any OpenAI-compatible API', letter: 'C', color: AppColors.purple),
+  _ProviderOption(name: 'OpenAI', backendKey: 'openai', subtitle: 'GPT-4, GPT-3.5-turbo', letter: 'O', color: AppColors.openaiGreen),
+  _ProviderOption(name: 'Google Gemini', backendKey: 'gemini', subtitle: 'Gemini Pro, Gemini Ultra', letter: 'G', color: AppColors.geminiBlue),
+  _ProviderOption(name: 'Anthropic Claude', backendKey: 'anthropic', subtitle: 'Claude 3, Claude 2', letter: 'A', color: AppColors.anthropicOrange),
+  _ProviderOption(name: 'Ollama (Local)', backendKey: 'ollama', subtitle: 'Llama, Mistral, etc.', letter: 'O', color: AppColors.deepseekGray),
+  _ProviderOption(name: 'Custom API', backendKey: 'custom', subtitle: 'Any OpenAI-compatible API', letter: 'C', color: AppColors.purple),
 ];
 
 const _allRoutingTags = ['coding', 'reasoning', 'creative', 'general', 'math', 'science'];
@@ -249,6 +372,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
   int _selectedProvider = 0;
   bool _isActive = true;
   bool _obscureKey = true;
+  bool _isSubmitting = false;
   final Set<String> _selectedTags = {'coding', 'reasoning', 'creative', 'general'};
 
   final _displayNameCtrl = TextEditingController();
@@ -265,11 +389,13 @@ class _AddModelPanelState extends State<_AddModelPanel> {
       _displayNameCtrl.text = m.name;
       _modelIdCtrl.text = m.modelCode;
       _isActive = m.active;
+      _endpointCtrl.text = m.endpointUrl ?? '';
+      _descriptionCtrl.text = m.description ?? '';
       _selectedTags
         ..clear()
         ..addAll(m.tags);
-      // Match provider by name
-      final idx = _providers.indexWhere((p) => p.name == m.provider);
+      // Match provider by backend key
+      final idx = _providers.indexWhere((p) => p.backendKey == m.provider);
       if (idx >= 0) _selectedProvider = idx;
     }
   }
@@ -284,41 +410,73 @@ class _AddModelPanelState extends State<_AddModelPanel> {
     super.dispose();
   }
 
-  void _submitModel() {
+  Future<void> _submitModel() async {
     final provider = _providers[_selectedProvider];
-    final name = _displayNameCtrl.text.trim().isNotEmpty
-        ? _displayNameCtrl.text.trim()
-        : '${provider.name} Model';
-    final modelCode = _modelIdCtrl.text.trim().isNotEmpty
-        ? _modelIdCtrl.text.trim()
-        : 'custom-${DateTime.now().microsecondsSinceEpoch}';
+    final name = _displayNameCtrl.text.trim();
+    final modelId = _modelIdCtrl.text.trim();
 
-    if (widget.isEditMode) {
-      // Update existing model
-      final m = widget.existingModel!;
-      m.name = name;
-      m.provider = provider.name;
-      m.modelCode = modelCode;
-      m.badgeLetter = provider.letter;
-      m.color = provider.color;
-      m.tags = _selectedTags.toList();
-      m.active = _isActive;
-      modelStore.refresh();
-    } else {
-      // Add new model
-      modelStore.add(LlmModel(
-        id: 'model_${DateTime.now().microsecondsSinceEpoch}',
-        name: name,
-        provider: provider.name,
-        modelCode: modelCode,
-        badgeLetter: provider.letter,
-        color: provider.color,
-        tags: _selectedTags.toList(),
-        active: _isActive,
-      ));
+    // Basic validation
+    if (name.isEmpty) {
+      _showError('Display name is required');
+      return;
+    }
+    if (modelId.isEmpty) {
+      _showError('Model ID is required');
+      return;
     }
 
-    Navigator.of(context).pop();
+    setState(() => _isSubmitting = true);
+
+    final data = <String, dynamic>{
+      'name': name,
+      'provider': provider.backendKey,
+      'model_id': modelId,
+      'routing_tags': _selectedTags.toList(),
+      'is_active': _isActive,
+    };
+
+    // Only send api_key if user entered something
+    final apiKey = _apiKeyCtrl.text.trim();
+    if (apiKey.isNotEmpty) data['api_key'] = apiKey;
+
+    final endpoint = _endpointCtrl.text.trim();
+    if (endpoint.isNotEmpty) data['endpoint_url'] = endpoint;
+
+    final description = _descriptionCtrl.text.trim();
+    if (description.isNotEmpty) data['description'] = description;
+
+    bool success;
+    if (widget.isEditMode) {
+      success = await modelStore.updateViaApi(widget.existingModel!.id, data);
+    } else {
+      success = await modelStore.addViaApi(data);
+    }
+
+    if (!mounted) return;
+
+    setState(() => _isSubmitting = false);
+
+    if (success) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(widget.isEditMode ? 'Model updated successfully' : 'Model added successfully'),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ));
+    } else {
+      _showError(widget.isEditMode ? 'Failed to update model' : 'Failed to add model');
+    }
+  }
+
+  void _showError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Colors.redAccent,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    ));
   }
 
   @override
@@ -476,7 +634,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                     const SizedBox(height: 8),
                     _buildTextField(
                       controller: _apiKeyCtrl,
-                      hint: 'sk-...',
+                      hint: widget.isEditMode ? '••••••••  (leave empty to keep current)' : 'sk-...',
                       obscure: _obscureKey,
                       suffixIcon: IconButton(
                         onPressed: () => setState(() => _obscureKey = !_obscureKey),
@@ -607,7 +765,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
               ),
             ),
 
-            // ── Bottom Add Model Button ──
+            // ── Bottom Submit Button ──
             Container(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
               decoration: BoxDecoration(
@@ -620,16 +778,29 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                 width: double.infinity,
                 height: 44,
                 child: ElevatedButton.icon(
-                  onPressed: _submitModel,
+                  onPressed: _isSubmitting ? null : _submitModel,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.purple,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppColors.purple.withValues(alpha: 0.5),
+                    disabledForegroundColor: Colors.white70,
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                  icon: Icon(widget.isEditMode ? Icons.check_rounded : Icons.save_outlined, size: 18),
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white70,
+                          ),
+                        )
+                      : Icon(widget.isEditMode ? Icons.check_rounded : Icons.save_outlined, size: 18),
                   label: Text(
-                    widget.isEditMode ? 'Save Changes' : 'Add Model',
+                    _isSubmitting
+                        ? (widget.isEditMode ? 'Saving...' : 'Adding...')
+                        : (widget.isEditMode ? 'Save Changes' : 'Add Model'),
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -743,6 +914,9 @@ class _ModelRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Resolve display name from provider backend key
+    final providerDisplay = LlmProvider.fromString(model.provider).displayName;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -800,7 +974,7 @@ class _ModelRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${model.provider} · ${model.modelCode}',
+                  '$providerDisplay · ${model.modelCode}',
                   style: TextStyle(color: context.textSecondary, fontSize: 11.5),
                 ),
                 if (model.tags.isNotEmpty) ...[
