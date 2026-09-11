@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../models.dart';
+import '../services/dummy_response_generator.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
+import '../widgets/chat_attachment_view.dart';
+import '../widgets/formatted_message_view.dart';
 
 /// Offline Mode screen — local Ollama-powered chat.
 class OfflineModeScreen extends StatefulWidget {
@@ -62,12 +65,12 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
     });
   }
 
-  void _send(String text, List<String> attachments) {
-    if (text.trim().isEmpty) return;
+  void _send(String text, List<ChatAttachment> attachments) {
+    if (text.trim().isEmpty && attachments.isEmpty) return;
     setState(() {
       _session ??= ChatSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: text.length > 42 ? '${text.substring(0, 42)}...' : text,
+        title: text.length > 42 ? '${text.substring(0, 42)}...' : (text.isNotEmpty ? text : (attachments.isNotEmpty ? attachments.first.name : 'Offline Chat')),
         mode: ChatMode.offline,
       );
       final isNew = !historyStore.sessions.contains(_session);
@@ -79,19 +82,30 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       }
     });
     _notifySession();
-    _appendAiResponse();
+    _appendAiResponse(prompt: text, attachments: attachments);
   }
 
-  void _appendAiResponse() {
+  void _appendAiResponse({String? prompt, List<ChatAttachment>? attachments}) {
     Future.delayed(const Duration(milliseconds: 700), () {
       if (!mounted || _session == null) return;
       final model = _dummyLocalModels[Random().nextInt(_dummyLocalModels.length)];
+
+      final lastUserMsg = _session!.messages.reversed.where((m) => m.isUser).cast<ChatMessage?>().firstOrNull;
+      final effectivePrompt = prompt ?? lastUserMsg?.text ?? '';
+      final effectiveAttachments = attachments ?? lastUserMsg?.attachments ?? [];
+
+      final aiText = DummyResponseGenerator.generate(
+        prompt: effectivePrompt,
+        attachments: effectiveAttachments,
+        modelName: model,
+        modeName: 'Offline Mode',
+      );
+
       setState(() {
         _session!.messages.add(ChatMessage(
           isUser: false,
           modelName: model,
-          text: '[Dummy local response placeholder from $model — UI demo only, '
-              'runs fully offline once a real Ollama server is wired up.]',
+          text: aiText,
         ));
         historyStore.touch(_session!);
       });
@@ -115,6 +129,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
   void _confirmEdit(int index) {
     final newText = _editController!.text.trim();
     if (newText.isEmpty) return;
+    final currentAttachments = _session!.messages[index].attachments;
     setState(() {
       _session!.messages[index].text = newText;
       if (_session!.messages.length > index + 1) {
@@ -124,16 +139,34 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       _editController = null;
     });
     historyStore.touch(_session!);
-    _appendAiResponse();
+    _appendAiResponse(prompt: newText, attachments: currentAttachments);
   }
 
   void _regenerateAt(int index) {
     final model = _dummyLocalModels[Random().nextInt(_dummyLocalModels.length)];
+    // Find preceding prompt
+    String prompt = '';
+    List<ChatAttachment> attachments = [];
+    for (int i = index - 1; i >= 0; i--) {
+      if (_session!.messages[i].isUser) {
+        prompt = _session!.messages[i].text;
+        attachments = _session!.messages[i].attachments;
+        break;
+      }
+    }
+
+    final regeneratedText = DummyResponseGenerator.generate(
+      prompt: prompt,
+      attachments: attachments,
+      modelName: model,
+      modeName: 'Offline Mode',
+    );
+
     setState(() {
       _session!.messages[index] = ChatMessage(
         isUser: false,
         modelName: model,
-        text: '[Regenerated dummy local response from $model — UI demo only.]',
+        text: regeneratedText,
       );
     });
     historyStore.touch(_session!);
@@ -166,8 +199,20 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
 
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bubbleMaxWidth = screenWidth < 660 ? screenWidth * 0.90 : 640.0;
+    final isDark = context.isDark;
+
+    const claudeUserDark = Color(0xFF262522); // Claude warm charcoal
+    const claudeBorderDark = Color(0xFF3E3C37);
+    const claudeUserLight = Color(0xFFF5F3ED);
+    const claudeBorderLight = Color(0xFFE2DFD6);
+
     return ListView.builder(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.symmetric(
+        horizontal: screenWidth < 500 ? 12 : 20,
+        vertical: 16,
+      ),
       itemCount: messages.length,
       itemBuilder: (context, i) {
         final m = messages[i];
@@ -192,16 +237,32 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
             crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
               Container(
-                constraints: const BoxConstraints(maxWidth: 560),
-                padding: const EdgeInsets.all(14),
+                constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: m.isUser ? AppColors.purple.withValues(alpha: 0.85) : context.surface2,
-                  borderRadius: BorderRadius.circular(12),
-                  border: m.isUser ? null : Border.all(color: context.borderColor),
+                  color: m.isUser
+                      ? (isDark ? claudeUserDark : claudeUserLight)
+                      : context.surface2,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: m.isUser
+                        ? (isDark ? claudeBorderDark : claudeBorderLight)
+                        : context.borderColor,
+                    width: 1.1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (m.attachments.isNotEmpty)
+                      ChatAttachmentsView(attachments: m.attachments, isUser: m.isUser),
                     if (!m.isUser && m.modelName != null) ...[
                       Row(
                         children: [
@@ -214,16 +275,28 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
                       ),
                       const SizedBox(height: 8),
                     ],
-                    Text(m.text,
+                    if (m.isUser)
+                      Text(
+                        m.text,
                         style: TextStyle(
-                            color: m.isUser ? Colors.white : context.textPrimary, fontSize: 14, height: 1.45)),
+                          color: isDark ? Colors.white : const Color(0xFF1E1E1E),
+                          fontSize: 14.5,
+                          height: 1.5,
+                        ),
+                      )
+                    else
+                      FormattedMessageView(
+                        text: m.text,
+                        isUser: false,
+                        textColor: context.textPrimary,
+                      ),
                   ],
                 ),
               ),
               m.isUser
                   ? UserMessageActions(onEdit: () => _startEdit(i), onCopy: () => _copy(m.text))
                   : AssistantMessageActions(onCopy: () => _copy(m.text), onRegenerate: () => _regenerateAt(i)),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
             ],
           ),
         );
@@ -358,30 +431,6 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
                 ),
               )),
         ],
-      ),
-    );
-  }
-
-  Widget _stepText(BuildContext context, String plain, String code, {bool mono = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: RichText(
-        text: TextSpan(
-          style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
-          children: [
-            TextSpan(text: plain),
-            if (code.isNotEmpty)
-              TextSpan(
-                text: code,
-                style: TextStyle(
-                  color: AppColors.purple,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: mono ? 'monospace' : null,
-                  backgroundColor: mono ? context.surface : null,
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }

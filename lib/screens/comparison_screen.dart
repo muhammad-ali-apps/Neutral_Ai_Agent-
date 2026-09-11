@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../models.dart';
+import '../services/dummy_response_generator.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
+import '../widgets/chat_attachment_view.dart';
+import '../widgets/formatted_message_view.dart';
 
 /// Comparison screen — side-by-side responses from selected models.
 class ComparisonScreen extends StatefulWidget {
@@ -21,14 +24,36 @@ class ComparisonScreen extends StatefulWidget {
 class ComparisonScreenState extends State<ComparisonScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
-  final Set<String> _selected = {'gpt4o', 'claude'};
+  final Set<String> _selected = <String>{};
   ChatSession? _session;
 
   int? _editingIndex;
   TextEditingController? _editController;
 
-  List<LlmModel> get _selectedModels =>
-      modelStore.models.where((m) => _selected.contains(m.id)).toList();
+  @override
+  void initState() {
+    super.initState();
+    _initDefaultSelection();
+  }
+
+  void _initDefaultSelection() {
+    final pool = modelStore.models.isNotEmpty ? modelStore.models : seedModels();
+    final active = pool.where((m) => m.active).toList();
+    final toSelect = active.isNotEmpty ? active : pool;
+    for (final m in toSelect.take(2)) {
+      _selected.add(m.id);
+    }
+  }
+
+  List<LlmModel> get _selectedModels {
+    final pool = modelStore.models.isNotEmpty ? modelStore.models : seedModels();
+    final selected = pool.where((m) => _selected.contains(m.id)).toList();
+    if (selected.isNotEmpty) return selected;
+    // Fallback if none selected
+    final active = pool.where((m) => m.active).toList();
+    final fallback = active.isNotEmpty ? active : pool;
+    return fallback.take(2).toList();
+  }
 
   void _notifySession() => widget.onSessionChanged?.call(_session?.id);
 
@@ -51,22 +76,30 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     _notifySession();
   }
 
-  void _send(String text, List<String> attachments) {
-    if (_selected.isEmpty || text.trim().isEmpty) return;
+  void _send(String text, List<ChatAttachment> attachments) {
+    if (text.trim().isEmpty && attachments.isEmpty) return;
+    final modelsToUse = _selectedModels;
+    if (modelsToUse.isEmpty) return;
+
     setState(() {
       _session ??= ChatSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: text.length > 42 ? '${text.substring(0, 42)}...' : text,
+        title: text.length > 42 ? '${text.substring(0, 42)}...' : (text.isNotEmpty ? text : (attachments.isNotEmpty ? attachments.first.name : 'Comparison Chat')),
         mode: ChatMode.comparison,
       );
       final isNew = !historyStore.sessions.contains(_session);
       _session!.messages.add(ChatMessage(isUser: true, text: text, attachments: attachments));
-      for (final model in _selectedModels) {
+      for (final model in modelsToUse) {
+        final aiText = DummyResponseGenerator.generate(
+          prompt: text,
+          attachments: attachments,
+          modelName: model.name,
+          modeName: 'Comparison',
+        );
         _session!.messages.add(ChatMessage(
           isUser: false,
           modelName: model.name,
-          text: '[Dummy response placeholder from ${model.name} — UI demo only, '
-              'not a real API call. Would answer: "$text"]',
+          text: aiText,
         ));
       }
       if (isNew) {
@@ -95,9 +128,12 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   void _confirmEdit(int index) {
     final newText = _editController!.text.trim();
     if (newText.isEmpty) return;
+    final currentAttachments = _session!.messages[index].attachments;
+    final modelsToUse = _selectedModels;
+
     setState(() {
       _session!.messages[index].text = newText;
-      // Remove the old response group (all consecutive assistant messages after it).
+      // Remove the old response group
       int end = index + 1;
       while (end < _session!.messages.length && !_session!.messages[end].isUser) {
         end++;
@@ -105,15 +141,20 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       if (end > index + 1) {
         _session!.messages.removeRange(index + 1, end);
       }
-      // Regenerate a fresh group using the currently selected models.
-      for (final model in _selectedModels) {
+      // Regenerate a fresh group using the currently selected models
+      for (final model in modelsToUse) {
+        final aiText = DummyResponseGenerator.generate(
+          prompt: newText,
+          attachments: currentAttachments,
+          modelName: model.name,
+          modeName: 'Comparison',
+        );
         _session!.messages.insert(
-          index + 1 + _selectedModels.indexOf(model),
+          index + 1 + modelsToUse.indexOf(model),
           ChatMessage(
             isUser: false,
             modelName: model.name,
-            text: '[Dummy response placeholder from ${model.name} — UI demo only, '
-                'not a real API call. Would answer: "$newText"]',
+            text: aiText,
           ),
         );
       }
@@ -125,11 +166,29 @@ class ComparisonScreenState extends State<ComparisonScreen> {
 
   void _regenerateAt(int index) {
     final m = _session!.messages[index];
+    // Find preceding prompt
+    String prompt = '';
+    List<ChatAttachment> attachments = [];
+    for (int i = index - 1; i >= 0; i--) {
+      if (_session!.messages[i].isUser) {
+        prompt = _session!.messages[i].text;
+        attachments = _session!.messages[i].attachments;
+        break;
+      }
+    }
+
+    final regeneratedText = DummyResponseGenerator.generate(
+      prompt: prompt,
+      attachments: attachments,
+      modelName: m.modelName,
+      modeName: 'Comparison',
+    );
+
     setState(() {
       _session!.messages[index] = ChatMessage(
         isUser: false,
         modelName: m.modelName,
-        text: '[Regenerated dummy response from ${m.modelName} — UI demo only.]',
+        text: regeneratedText,
       );
     });
     historyStore.touch(_session!);
@@ -161,7 +220,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                 clipBehavior: Clip.none,
                 children: [
                   Icon(Icons.view_sidebar_rounded, color: context.textSecondary),
-                  if (_selected.isNotEmpty)
+                  if (_selectedModels.isNotEmpty)
                     Positioned(
                       right: -2,
                       top: -2,
@@ -169,7 +228,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                         padding: const EdgeInsets.all(3),
                         decoration: const BoxDecoration(color: AppColors.purple, shape: BoxShape.circle),
                         constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
-                        child: Text('${_selected.length}',
+                        child: Text('${_selectedModels.length}',
                             textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 9)),
                       ),
                     ),
@@ -177,9 +236,9 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               ),
             ),
           ),
-          if (_selected.isNotEmpty) _buildSelectedBar(context),
+          if (_selectedModels.isNotEmpty) _buildSelectedBar(context),
           Expanded(
-            child: _selected.isEmpty
+            child: _selectedModels.isEmpty
                 ? _buildNoModelsState(context)
                 : hasMessages
                     ? _buildChatList(context)
@@ -187,9 +246,9 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           ),
           ChatInputBar(
             controller: _controller,
-            hint: _selected.isEmpty
-                ? 'Select the models '
-                : 'Ask Anything',
+            hint: _selectedModels.isEmpty
+                ? 'Select models to compare...'
+                : 'Ask anything to compare selected models...',
             onSend: _send,
           ),
         ],
@@ -292,7 +351,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               totalRepeatCount: 19,
             ),
             const SizedBox(height: 6),
-            Text('Type a prompt below to see it answered by all ${_selected.length} selected models.',
+            Text('Type a prompt below to see it answered by all ${_selectedModels.length} selected models.',
                 textAlign: TextAlign.center, style: TextStyle(color: context.textSecondary, fontSize: 12.5)),
           ],
         ),
@@ -333,26 +392,66 @@ class ComparisonScreenState extends State<ComparisonScreen> {
         widgets.add(_responseGroup(context, group));
       }
     }
-    return ListView(padding: const EdgeInsets.all(20), children: widgets);
+    return ListView(
+      padding: EdgeInsets.symmetric(
+        horizontal: MediaQuery.of(context).size.width < 500 ? 12 : 20,
+        vertical: 16,
+      ),
+      children: widgets,
+    );
   }
 
   Widget _userBubble(BuildContext context, ChatMessage m, int index) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bubbleMaxWidth = screenWidth < 660 ? screenWidth * 0.90 : 640.0;
+    final isDark = context.isDark;
+
+    const claudeUserDark = Color(0xFF262522); // Claude warm charcoal
+    const claudeBorderDark = Color(0xFF3E3C37);
+    const claudeUserLight = Color(0xFFF5F3ED);
+    const claudeBorderLight = Color(0xFFE2DFD6);
+
     return Align(
       alignment: Alignment.centerRight,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Container(
-            constraints: const BoxConstraints(maxWidth: 560),
-            padding: const EdgeInsets.all(12),
+            constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppColors.purple.withValues(alpha: 0.85),
-              borderRadius: BorderRadius.circular(12),
+              color: isDark ? claudeUserDark : claudeUserLight,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? claudeBorderDark : claudeBorderLight,
+                width: 1.1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-            child: Text(m.text, style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.45)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (m.attachments.isNotEmpty)
+                  ChatAttachmentsView(attachments: m.attachments, isUser: true),
+                Text(
+                  m.text,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF1E1E1E),
+                    fontSize: 14.5,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
           ),
           UserMessageActions(onEdit: () => _startEdit(index), onCopy: () => _copy(m.text)),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -370,10 +469,10 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           final color = model.isNotEmpty ? model.first.color : AppColors.purple;
           final letter = model.isNotEmpty ? model.first.badgeLetter : '?';
           return Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: context.surface2,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: context.borderColor),
             ),
             child: Column(
@@ -382,17 +481,17 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                 Row(
                   children: [
                     CircleAvatar(
-                        radius: 10,
+                        radius: 11,
                         backgroundColor: color,
-                        child: Text(letter, style: const TextStyle(fontSize: 10, color: Colors.white))),
+                        child: Text(letter, style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold))),
                     const SizedBox(width: 8),
                     Text(m.modelName ?? '',
-                        style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 13)),
+                        style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 13.5)),
                   ],
                 ),
                 const Divider(height: 18),
-                Text(m.text, style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5)),
-                const SizedBox(height: 4),
+                FormattedMessageView(text: m.text, isUser: false, textColor: context.textPrimary),
+                const SizedBox(height: 6),
                 AssistantMessageActions(onCopy: () => _copy(m.text), onRegenerate: () => _regenerateAt(index)),
               ],
             ),
@@ -413,9 +512,10 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   }
 
   Widget _buildModelDrawer(BuildContext context) {
+    final screenW = MediaQuery.of(context).size.width;
     return Drawer(
       backgroundColor: context.surface,
-      width: 300,
+      width: screenW < 340 ? screenW * 0.88 : 300,
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -486,7 +586,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text('Apply Selection (${_selected.length})'),
+                  child: Text('Apply Selection (${_selectedModels.length})'),
                 ),
               ),
             ),

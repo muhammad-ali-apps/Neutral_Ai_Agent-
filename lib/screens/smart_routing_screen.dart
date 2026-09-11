@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../models.dart';
+import '../services/dummy_response_generator.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
+import '../widgets/chat_attachment_view.dart';
+import '../widgets/formatted_message_view.dart';
 
 /// Smart Routing screen — routes prompts to the best available model.
 class SmartRoutingScreen extends StatefulWidget {
@@ -34,8 +37,6 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     'Solve: 2x² + 5x - 3 = 0',
   ];
 
-  final _categories = const ['Coding', 'Reasoning', 'Creative Writing', 'Math', 'General Chat'];
-
   void _notifySession() => widget.onSessionChanged?.call(_session?.id);
 
   /// Called by the main app Sidebar's "New Chat" button when this screen is active.
@@ -58,12 +59,12 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     _notifySession();
   }
 
-  void _send(String text, List<String> attachments) {
-    if (text.trim().isEmpty) return;
+  void _send(String text, List<ChatAttachment> attachments) {
+    if (text.trim().isEmpty && attachments.isEmpty) return;
     setState(() {
       _session ??= ChatSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: text.length > 42 ? '${text.substring(0, 42)}...' : text,
+        title: text.length > 42 ? '${text.substring(0, 42)}...' : (text.isNotEmpty ? text : (attachments.isNotEmpty ? attachments.first.name : 'New Chat')),
         mode: ChatMode.smartRouting,
       );
       final isNew = !historyStore.sessions.contains(_session);
@@ -76,24 +77,35 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _thinking = true;
     });
     _notifySession();
-    _appendAiResponse();
+    _appendAiResponse(prompt: text, attachments: attachments);
   }
 
-  void _appendAiResponse() {
-    Future.delayed(const Duration(milliseconds: 900), () {
+  void _appendAiResponse({String? prompt, List<ChatAttachment>? attachments}) {
+    Future.delayed(const Duration(milliseconds: 700), () {
       if (!mounted || _session == null) return;
-      final pool = modelStore.active.isNotEmpty ? modelStore.active : modelStore.models;
+      final pool = modelStore.active.isNotEmpty
+          ? modelStore.active
+          : (modelStore.models.isNotEmpty ? modelStore.models : seedModels());
       final rnd = Random();
-      final category = _categories[rnd.nextInt(_categories.length)];
-      final model = pool[rnd.nextInt(pool.length)];
+      final model = pool.isNotEmpty ? pool[rnd.nextInt(pool.length)] : seedModels().first;
+
+      final lastUserMsg = _session!.messages.reversed.where((m) => m.isUser).cast<ChatMessage?>().firstOrNull;
+      final effectivePrompt = prompt ?? lastUserMsg?.text ?? '';
+      final effectiveAttachments = attachments ?? lastUserMsg?.attachments ?? [];
+
+      final aiText = DummyResponseGenerator.generate(
+        prompt: effectivePrompt,
+        attachments: effectiveAttachments,
+        modelName: model.name,
+        modeName: 'Smart Routing',
+      );
+
       setState(() {
         _thinking = false;
         _session!.messages.add(ChatMessage(
           isUser: false,
           modelName: model.name,
-          text: '[Dummy generated response placeholder — UI demo only. '
-              'In the real app this text will come from ${model.name} after '
-              'the prompt is routed based on detected category: $category.]',
+          text: aiText,
         ));
         historyStore.touch(_session!);
       });
@@ -121,8 +133,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     if (newText.isEmpty) return;
     setState(() {
       _session!.messages[index].text = newText;
-      // Drop the old AI response(s) that followed this prompt — they no
-      // longer match the edited text.
+      // Drop the old AI response(s) that followed this prompt
       if (_session!.messages.length > index + 1) {
         _session!.messages.removeRange(index + 1, _session!.messages.length);
       }
@@ -131,20 +142,39 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _thinking = true;
     });
     historyStore.touch(_session!);
-    _appendAiResponse();
+    _appendAiResponse(prompt: newText, attachments: _session!.messages[index].attachments);
   }
 
   void _regenerateAt(int index) {
-    final pool = modelStore.active.isNotEmpty ? modelStore.active : modelStore.models;
+    final pool = modelStore.active.isNotEmpty
+        ? modelStore.active
+        : (modelStore.models.isNotEmpty ? modelStore.models : seedModels());
     final rnd = Random();
-    final category = _categories[rnd.nextInt(_categories.length)];
-    final model = pool[rnd.nextInt(pool.length)];
+    final model = pool.isNotEmpty ? pool[rnd.nextInt(pool.length)] : seedModels().first;
+
+    // Find preceding user prompt
+    String prompt = '';
+    List<ChatAttachment> attachments = [];
+    for (int i = index - 1; i >= 0; i--) {
+      if (_session!.messages[i].isUser) {
+        prompt = _session!.messages[i].text;
+        attachments = _session!.messages[i].attachments;
+        break;
+      }
+    }
+
+    final regeneratedText = DummyResponseGenerator.generate(
+      prompt: prompt,
+      attachments: attachments,
+      modelName: model.name,
+      modeName: 'Smart Routing',
+    );
+
     setState(() {
       _session!.messages[index] = ChatMessage(
         isUser: false,
         modelName: model.name,
-        text: '[Regenerated dummy response — UI demo only. From ${model.name}, '
-            'category: $category.]',
+        text: regeneratedText,
       );
     });
     historyStore.touch(_session!);
@@ -245,16 +275,21 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
               //   style: TextStyle(color: context.textSecondary, fontSize: 13.5, height: 1.45),
               // ),
               const SizedBox(height: 24),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 2.8,
-                children: _suggestions.map((s) {
-                  return _SuggestionCard(text: s, onTap: () => _sendSuggestion(s));
-                }).toList(),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isNarrow = constraints.maxWidth < 520;
+                  return GridView.count(
+                    crossAxisCount: isNarrow ? 1 : 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: isNarrow ? 4.6 : 2.8,
+                    children: _suggestions.map((s) {
+                      return _SuggestionCard(text: s, onTap: () => _sendSuggestion(s));
+                    }).toList(),
+                  );
+                },
               ),
             ],
           ),
@@ -265,8 +300,21 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
 
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bubbleMaxWidth = screenWidth < 660 ? screenWidth * 0.90 : 640.0;
+    final isDark = context.isDark;
+
+    const claudeUserDark = Color(0xFF262522); // Claude warm charcoal
+    const claudeBorderDark = Color(0xFF3E3C37);
+    const claudeUserLight = Color(0xFFF5F3ED);
+    const claudeBorderLight = Color(0xFFE2DFD6);
+    const claudeAccent = Color(0xFFDA7756);
+
     return ListView.builder(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.symmetric(
+        horizontal: screenWidth < 500 ? 12 : 20,
+        vertical: 16,
+      ),
       itemCount: messages.length,
       itemBuilder: (context, i) {
         final m = messages[i];
@@ -295,63 +343,102 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
             crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
               Container(
-                constraints: const BoxConstraints(maxWidth: 560),
-                padding: const EdgeInsets.all(14),
+                constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: m.isUser ? AppColors.purple.withValues(alpha: 0.85) : context.surface2,
-                  borderRadius: BorderRadius.circular(12),
-                  border: m.isUser ? null : Border.all(color: context.borderColor),
+                  color: m.isUser
+                      ? (isDark ? claudeUserDark : claudeUserLight)
+                      : context.surface2,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: m.isUser
+                        ? (isDark ? claudeBorderDark : claudeBorderLight)
+                        : context.borderColor,
+                    width: 1.1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (m.isUser && m.attachments.isNotEmpty) ...[
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: m.attachments
-                            .map((a) => Chip(
-                                  backgroundColor: Colors.white.withValues(alpha: 0.15),
-                                  label: Text(a, style: const TextStyle(color: Colors.white, fontSize: 11)),
-                                  side: BorderSide.none,
-                                  visualDensity: VisualDensity.compact,
-                                ))
-                            .toList(),
-                      ),
-                      const SizedBox(height: 6),
-                    ],
-                    if (!m.isUser && model != null) ...[
+                    // Claude-styled Attachments at top of bubble
+                    if (m.attachments.isNotEmpty)
+                      ChatAttachmentsView(attachments: m.attachments, isUser: m.isUser),
+                    // Model identity header for Assistant
+                    if (!m.isUser) ...[
                       Row(
                         children: [
-                          CircleAvatar(
-                            radius: 10,
-                            backgroundColor: model.color,
-                            child: Text(model.badgeLetter,
-                                style: const TextStyle(fontSize: 10, color: Colors.white)),
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: model?.color ?? claudeAccent,
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              model?.badgeLetter ?? 'C',
+                              style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
                           ),
-                          const SizedBox(width: 6),
-                          Text(model.name,
+                          const SizedBox(width: 8),
+                          Text(
+                            m.modelName ?? 'Claude 3.5 Sonnet',
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: claudeAccent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Smart Routed',
                               style: TextStyle(
-                                  color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 12.5)),
+                                color: claudeAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                     ],
-                    Text(
-                      m.text,
-                      style: TextStyle(
-                        color: m.isUser ? Colors.white : context.textPrimary,
-                        fontSize: 14,
-                        height: 1.45,
+                    // Message content rendered with Markdown / Code blocks
+                    if (m.isUser)
+                      Text(
+                        m.text,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF1E1E1E),
+                          fontSize: 14.5,
+                          height: 1.5,
+                        ),
+                      )
+                    else
+                      FormattedMessageView(
+                        text: m.text,
+                        isUser: false,
+                        textColor: context.textPrimary,
                       ),
-                    ),
                   ],
                 ),
               ),
               m.isUser
                   ? UserMessageActions(onEdit: () => _startEdit(i), onCopy: () => _copy(m.text))
                   : AssistantMessageActions(onCopy: () => _copy(m.text), onRegenerate: () => _regenerateAt(i)),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
             ],
           ),
         );
@@ -360,18 +447,21 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   }
 
   Widget _buildThinkingBar(BuildContext context) {
+    const claudeAccent = Color(0xFFDA7756);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       child: Row(
         children: [
           const SizedBox(
-            width: 13,
-            height: 13,
-            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2, color: claudeAccent),
           ),
-          const SizedBox(width: 8),
-          Text('Analyzing prompt & selecting best model...',
-              style: TextStyle(color: context.textSecondary, fontSize: 12)),
+          const SizedBox(width: 10),
+          Text(
+            'Analyzing prompt & routing to Claude AI model...',
+            style: TextStyle(color: context.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w500),
+          ),
         ],
       ),
     );

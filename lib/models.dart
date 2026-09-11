@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'services/api_services.dart';
@@ -148,13 +149,69 @@ class LlmModel {
   }
 }
 
+List<LlmModel> seedModels() => [
+      LlmModel(
+        id: 'claude-3-5-sonnet',
+        name: 'Claude 3.5 Sonnet',
+        provider: 'anthropic',
+        modelCode: 'claude-3-5-sonnet-20241022',
+        badgeLetter: 'C',
+        color: AppColors.anthropicOrange,
+        tags: ['reasoning', 'coding', 'writing', 'analysis'],
+        active: true,
+      ),
+      LlmModel(
+        id: 'gpt-4o',
+        name: 'GPT-4o',
+        provider: 'openai',
+        modelCode: 'gpt-4o',
+        badgeLetter: 'G',
+        color: AppColors.openaiGreen,
+        tags: ['reasoning', 'general', 'coding'],
+        active: true,
+      ),
+      LlmModel(
+        id: 'gemini-1-5-pro',
+        name: 'Gemini 1.5 Pro',
+        provider: 'gemini',
+        modelCode: 'gemini-1.5-pro',
+        badgeLetter: 'G',
+        color: AppColors.geminiBlue,
+        tags: ['reasoning', 'multimodal'],
+        active: true,
+      ),
+      LlmModel(
+        id: 'deepseek-v3',
+        name: 'DeepSeek V3',
+        provider: 'custom',
+        modelCode: 'deepseek-chat',
+        badgeLetter: 'D',
+        color: AppColors.deepseekGray,
+        tags: ['coding', 'science', 'math'],
+        active: true,
+      ),
+      LlmModel(
+        id: 'gpt-3-5-turbo',
+        name: 'GPT-3.5 Turbo',
+        provider: 'openai',
+        modelCode: 'gpt-3.5-turbo',
+        badgeLetter: 'O',
+        color: AppColors.openaiGreen,
+        tags: ['general', 'creative'],
+        active: true,
+      ),
+    ];
+
 /// Shared model store; Admin mutates via API, other screens listen.
 class ModelStore extends ChangeNotifier {
-  List<LlmModel> models = [];
+  List<LlmModel> models = seedModels();
   bool isLoading = false;
   String? errorMessage;
 
-  List<LlmModel> get active => models.where((m) => m.active).toList();
+  List<LlmModel> get active {
+    final act = models.where((m) => m.active).toList();
+    return act.isNotEmpty ? act : (models.isNotEmpty ? models : seedModels());
+  }
 
   /// Fetch all models from backend API.
   Future<void> loadFromApi() async {
@@ -164,14 +221,17 @@ class ModelStore extends ChangeNotifier {
 
     try {
       final result = await ApiService.fetchLlmModels();
-      if (result != null) {
+      if (result != null && result.isNotEmpty) {
         models = result.map((json) => LlmModel.fromJson(json)).toList();
         errorMessage = null;
-      } else {
-        errorMessage = 'Failed to load models';
+      } else if (models.isEmpty) {
+        models = seedModels();
       }
     } catch (e) {
       errorMessage = 'Error: $e';
+      if (models.isEmpty) {
+        models = seedModels();
+      }
       print('ModelStore.loadFromApi error: $e');
     }
 
@@ -298,11 +358,60 @@ extension ChatModeX on ChatMode {
   }
 }
 
+/// Attachment metadata for chat messages (screenshots, images, or project files).
+class ChatAttachment {
+  final String name;
+  final String? path;
+  final Uint8List? bytes;
+  final bool isImage;
+  final String? fileType; // 'screenshot', 'camera', 'project'
+  final int? sizeInBytes;
+
+  ChatAttachment({
+    required this.name,
+    this.path,
+    this.bytes,
+    this.isImage = false,
+    this.fileType,
+    this.sizeInBytes,
+  });
+
+  String get formattedSize {
+    int count = sizeInBytes ?? bytes?.length ?? 0;
+    if (count == 0) {
+      return isImage ? 'Image File' : 'Project File';
+    }
+    final kb = count / 1024;
+    if (kb >= 1024) {
+      return '${(kb / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${kb.toStringAsFixed(0)} KB';
+  }
+
+  String get extensionLabel {
+    final idx = name.lastIndexOf('.');
+    if (idx != -1 && idx < name.length - 1) {
+      final ext = name.substring(idx + 1).toUpperCase();
+      if (ext.length <= 5) return ext;
+    }
+    return isImage ? 'IMG' : 'FILE';
+  }
+
+  String get typeSubtitle {
+    final ext = extensionLabel;
+    final size = formattedSize;
+    if (fileType == 'screenshot') return 'Screenshot • $size';
+    if (fileType == 'camera') return 'Photo • $size';
+    if (fileType == 'project') return '$ext File • $size';
+    return isImage ? 'Image • $size' : '$ext Document • $size';
+  }
+}
+
 class ChatMessage {
   bool isUser;
   String text;
   String? modelName;
-  List<String> attachments;
+  List<ChatAttachment> attachments;
 
   ChatMessage({
     required this.isUser,

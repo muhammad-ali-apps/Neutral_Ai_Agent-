@@ -606,7 +606,7 @@ class _AccountTileState extends State<_AccountTile> {
             alignment: Alignment.center,
             child: Text(
               getInitials(userName),
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11),
             ),
           ),
           const SizedBox(width: 10),

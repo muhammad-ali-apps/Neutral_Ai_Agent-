@@ -1,20 +1,68 @@
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../app_theme.dart';
+import '../models.dart';
 
 class PickedAttachment {
   final String name;
   final IconData icon;
-  PickedAttachment(this.name, this.icon);
+  final String? path;
+  final Uint8List? bytes;
+  final bool isImage;
+  final String fileType; // 'screenshot', 'camera', 'project'
+  final int? sizeInBytes;
+
+  PickedAttachment({
+    required this.name,
+    required this.icon,
+    this.path,
+    this.bytes,
+    this.isImage = false,
+    required this.fileType,
+    this.sizeInBytes,
+  });
+
+  String get formattedSize {
+    int count = sizeInBytes ?? bytes?.length ?? 0;
+    if (count == 0) {
+      return isImage ? 'Image File' : 'Project File';
+    }
+    final kb = count / 1024;
+    if (kb >= 1024) {
+      return '${(kb / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${kb.toStringAsFixed(0)} KB';
+  }
+
+  String get extensionLabel {
+    final idx = name.lastIndexOf('.');
+    if (idx != -1 && idx < name.length - 1) {
+      final ext = name.substring(idx + 1).toUpperCase();
+      if (ext.length <= 5) return ext;
+    }
+    return isImage ? 'IMG' : 'FILE';
+  }
+
+  String get typeSubtitle {
+    final ext = extensionLabel;
+    final size = formattedSize;
+    if (fileType == 'screenshot') return 'Screenshot • $size';
+    if (fileType == 'camera') return 'Photo • $size';
+    if (fileType == 'project') return '$ext File • $size';
+    return isImage ? 'Image • $size' : '$ext Document • $size';
+  }
 }
 
-/// Reusable chat input bar with attach menu and send control.
+/// Reusable chat input bar with attach menu (Screenshot, Camera, Project)
+/// and ChatGPT-style rich attachment cards.
 class ChatInputBar extends StatefulWidget {
   final TextEditingController controller;
   final String hint;
-  final void Function(String text, List<String> attachmentNames) onSend;
+  final void Function(String text, List<ChatAttachment> attachments) onSend;
 
   const ChatInputBar({
     super.key,
@@ -31,10 +79,40 @@ class _ChatInputBarState extends State<ChatInputBar> {
   final List<PickedAttachment> _attachments = [];
   bool _busy = false;
 
+  String get _effectiveHint {
+    if (_attachments.isNotEmpty) {
+      final last = _attachments.last;
+      if (last.fileType == 'screenshot') {
+        return 'Ask anything about this screenshot...';
+      } else if (last.fileType == 'camera') {
+        return 'Ask anything about this photo...';
+      } else if (last.fileType == 'project') {
+        return 'Ask anything about this project file...';
+      }
+    }
+    return widget.hint;
+  }
+
   void _submit() {
     final text = widget.controller.text.trim();
-    if (text.isEmpty) return;
-    widget.onSend(text, _attachments.map((a) => a.name).toList());
+    if (text.isEmpty && _attachments.isEmpty) return;
+
+    final attachmentsToSend = _attachments.map((a) => ChatAttachment(
+      name: a.name,
+      path: a.path,
+      bytes: a.bytes,
+      isImage: a.isImage,
+      fileType: a.fileType,
+      sizeInBytes: a.sizeInBytes,
+    )).toList();
+
+    final promptText = text.isEmpty && _attachments.isNotEmpty
+        ? (_attachments.any((a) => a.fileType == 'project')
+            ? 'Please analyze this project file.'
+            : 'Please analyze this image.')
+        : text;
+
+    widget.onSend(promptText, attachmentsToSend);
     widget.controller.clear();
     setState(() => _attachments.clear());
   }
@@ -44,7 +122,16 @@ class _ChatInputBarState extends State<ChatInputBar> {
     try {
       final XFile? file = await ImagePicker().pickImage(source: ImageSource.camera);
       if (file != null) {
-        setState(() => _attachments.add(PickedAttachment(file.name, Icons.photo_camera_outlined)));
+        final bytes = await file.readAsBytes();
+        setState(() => _attachments.add(PickedAttachment(
+          name: file.name,
+          icon: Icons.photo_camera_outlined,
+          path: file.path,
+          bytes: bytes,
+          isImage: true,
+          fileType: 'camera',
+          sizeInBytes: bytes.length,
+        )));
       }
     } catch (e) {
       _showError('Could not open camera: $e');
@@ -53,13 +140,22 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
+  /// Screenshot option: Strictly allows screenshot / image picking from gallery
   Future<void> _pickScreenshot() async {
     setState(() => _busy = true);
     try {
       final XFile? file = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (file != null) {
-        setState(() =>
-            _attachments.add(PickedAttachment(file.name, Icons.screenshot_monitor_outlined)));
+        final bytes = await file.readAsBytes();
+        setState(() => _attachments.add(PickedAttachment(
+          name: file.name,
+          icon: Icons.screenshot_monitor_outlined,
+          path: file.path,
+          bytes: bytes,
+          isImage: true,
+          fileType: 'screenshot',
+          sizeInBytes: bytes.length,
+        )));
       }
     } catch (e) {
       _showError('Could not open gallery: $e');
@@ -68,13 +164,22 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
+  /// Project option: Strictly allows project / document files
   Future<void> _pickProject() async {
     setState(() => _busy = true);
     try {
-      final result = await FilePicker.platform.pickFiles();
+      final result = await FilePicker.platform.pickFiles(withData: true);
       if (result != null && result.files.isNotEmpty) {
-        setState(() =>
-            _attachments.add(PickedAttachment(result.files.first.name, Icons.folder_outlined)));
+        final file = result.files.first;
+        setState(() => _attachments.add(PickedAttachment(
+          name: file.name,
+          icon: Icons.folder_outlined,
+          path: file.path,
+          bytes: file.bytes,
+          isImage: false,
+          fileType: 'project',
+          sizeInBytes: file.size,
+        )));
       }
     } catch (e) {
       _showError('Could not open file picker: $e');
@@ -91,34 +196,20 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: context.borderColor)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ChatGPT style attachment preview cards
           if (_attachments.isNotEmpty) ...[
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _attachments
-                  .map(
-                    (a) => Chip(
-                      backgroundColor: context.surface2,
-                      avatar: Icon(a.icon, size: 14, color: AppColors.purple),
-                      label: Text(
-                        a.name,
-                        style: TextStyle(color: context.textPrimary, fontSize: 11.5),
-                      ),
-                      deleteIcon: const Icon(Icons.close, size: 14),
-                      onDeleted: () => setState(() => _attachments.remove(a)),
-                      side: BorderSide(color: context.borderColor),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  )
-                  .toList(),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _attachments.map((a) => _buildAttachmentPreview(a)).toList(),
+              ),
             ),
             const SizedBox(height: 8),
           ],
@@ -157,8 +248,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                         border: InputBorder.none,
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                        hintText: widget.hint,
-                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 14),
+                        hintText: _effectiveHint,
+                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 13.5),
                       ),
                     ),
                   ),
@@ -191,39 +282,54 @@ class _ChatInputBarState extends State<ChatInputBar> {
                               if (v == 'Project') _pickProject();
                             },
                             itemBuilder: (context) => [
-                              _menuItem(context, 'Camera', Icons.photo_camera_outlined),
-                              _menuItem(context, 'Screenshot', Icons.screenshot_monitor_outlined),
-                              _menuItem(context, 'Project', Icons.folder_outlined),
+                              _menuItem(
+                                context,
+                                'Screenshot',
+                                Icons.screenshot_monitor_outlined,
+                                'Attach image / screenshot',
+                              ),
+                              _menuItem(
+                                context,
+                                'Project',
+                                Icons.folder_outlined,
+                                'Attach project file / code',
+                              ),
+                              _menuItem(
+                                context,
+                                'Camera',
+                                Icons.photo_camera_outlined,
+                                'Take a photo',
+                              ),
                             ],
                             child: Container(
-                              width: 30,
-                              height: 30,
+                              width: 32,
+                              height: 32,
                               decoration: BoxDecoration(
                                 color: AppColors.purple.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: const Icon(Icons.add_rounded, color: AppColors.purple, size: 18),
+                              child: const Icon(Icons.add_rounded, color: AppColors.purple, size: 20),
                             ),
                           ),
                     const Spacer(),
                     ValueListenableBuilder<TextEditingValue>(
                       valueListenable: widget.controller,
                       builder: (context, value, _) {
-                        final hasText = value.text.trim().isNotEmpty;
+                        final canSend = value.text.trim().isNotEmpty || _attachments.isNotEmpty;
                         return AnimatedContainer(
                           duration: const Duration(milliseconds: 120),
                           width: 32,
                           height: 32,
                           decoration: BoxDecoration(
-                            color: hasText ? AppColors.purple : context.borderColor,
+                            color: canSend ? AppColors.purple : context.borderColor,
                             borderRadius: BorderRadius.circular(9),
                           ),
                           child: IconButton(
                             padding: EdgeInsets.zero,
-                            onPressed: hasText ? _submit : null,
+                            onPressed: canSend ? _submit : null,
                             icon: Icon(
                               Icons.arrow_upward_rounded,
-                              color: hasText ? Colors.white : context.textSecondary,
+                              color: canSend ? Colors.white : context.textSecondary,
                               size: 17,
                             ),
                           ),
@@ -245,15 +351,161 @@ class _ChatInputBarState extends State<ChatInputBar> {
     );
   }
 
-  PopupMenuItem<String> _menuItem(BuildContext context, String label, IconData icon) {
+  /// Claude-style attachment card preview in the input area
+  Widget _buildAttachmentPreview(PickedAttachment a) {
+    const claudeAccent = Color(0xFFDA7756);
+    final isDark = context.isDark;
+    final isProject = a.fileType == 'project';
+
+    return Container(
+      margin: const EdgeInsets.only(right: 10),
+      height: 56,
+      constraints: const BoxConstraints(maxWidth: 250, minWidth: 170),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF262522) : const Color(0xFFF7F5F0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? const Color(0xFF3E3C37) : const Color(0xFFE2DFD6),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (a.isImage)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 42,
+                height: 42,
+                color: Colors.black26,
+                child: a.bytes != null
+                    ? Image.memory(a.bytes!, fit: BoxFit.cover)
+                    : (a.path != null && !kIsWeb
+                        ? Image.file(File(a.path!), fit: BoxFit.cover)
+                        : const Icon(Icons.image, color: claudeAccent, size: 20)),
+              ),
+            )
+          else
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFDA7756), Color(0xFFC06243)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    isProject ? Icons.terminal_rounded : Icons.description_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                  Text(
+                    a.extensionLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  a.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  a.typeSubtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: context.textSecondary,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: () => setState(() => _attachments.remove(a)),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white12 : Colors.black12,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.close_rounded, size: 13, color: context.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(
+    BuildContext context,
+    String label,
+    IconData icon,
+    String subtitle,
+  ) {
+    const claudeAccent = Color(0xFFDA7756);
     return PopupMenuItem<String>(
       value: label,
-      height: 40,
+      height: 48,
       child: Row(
         children: [
-          Icon(icon, size: 16, color: context.textSecondary),
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: claudeAccent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Icon(icon, size: 16, color: claudeAccent),
+          ),
           const SizedBox(width: 10),
-          Text(label, style: TextStyle(color: context.textPrimary, fontSize: 13)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(color: context.textSecondary, fontSize: 10.5),
+              ),
+            ],
+          ),
         ],
       ),
     );

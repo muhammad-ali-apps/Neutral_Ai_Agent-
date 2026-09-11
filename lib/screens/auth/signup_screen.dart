@@ -49,7 +49,7 @@ class _SignupScreenState extends State<SignupScreen> {
     );
     if(isSuccess){
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Account Created Successfully!")),
+        const SnackBar(content: Text("Account Created Successfully!")),
       );
       if (!mounted) return;
       setState(() => _loading = false);
@@ -62,7 +62,7 @@ class _SignupScreenState extends State<SignupScreen> {
     }else{
       setState(()=> _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to create account")),
+        const SnackBar(content: Text("Failed to create account")),
       );
     }
     // Future.delayed(const Duration(milliseconds: 700), () {

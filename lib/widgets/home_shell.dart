@@ -34,6 +34,12 @@ class _HomeShellState extends State<HomeShell> {
   final _comparisonKey = GlobalKey<ComparisonScreenState>();
   final _offlineKey = GlobalKey<OfflineModeScreenState>();
 
+  @override
+  void initState() {
+    super.initState();
+    modelStore.loadFromApi();
+  }
+
   /// Tracks the active session id per mode so the Sidebar can highlight it.
   final Map<ChatMode, String?> _activeSessionIds = {
     ChatMode.smartRouting: null,
