@@ -78,7 +78,7 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 26),
             AuthTextField(
               label: 'Email',
-              hint: 'opcodedevelopers@gmail.com',
+              hint: 'Enter your email',
               icon: Icons.mail_outline_rounded,
               controller: _emailCtrl,
               keyboardType: TextInputType.emailAddress,
