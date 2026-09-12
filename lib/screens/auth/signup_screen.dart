@@ -99,14 +99,14 @@ class _SignupScreenState extends State<SignupScreen> {
             const SizedBox(height: 26),
             AuthTextField(
               label: 'Full Name',
-              hint: 'John Doe',
+              hint: 'Enter your name',
               icon: Icons.person_outline_rounded,
               controller: _nameCtrl,
               validator: (v) => AuthValidators.required(v, field: 'Full name'),
             ),
             AuthTextField(
               label: 'Email',
-              hint: 'john.doe@example.com',
+              hint: 'Enter your email',
               icon: Icons.mail_outline_rounded,
               controller: _emailCtrl,
               keyboardType: TextInputType.emailAddress,
