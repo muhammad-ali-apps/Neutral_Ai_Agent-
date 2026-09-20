@@ -82,6 +82,9 @@ class LlmModel {
   String? endpointUrl;
   String? description;
   String? iconColor;
+  bool isRouter;         // is_router in backend
+  double? temperature;   // temperature in backend
+  int? maxTokens;        // max_tokens in backend
 
   LlmModel({
     required this.id,
@@ -96,6 +99,9 @@ class LlmModel {
     this.endpointUrl,
     this.description,
     this.iconColor,
+    this.isRouter = false,
+    this.temperature,
+    this.maxTokens,
   });
 
   /// Create from backend JSON response.
@@ -130,6 +136,9 @@ class LlmModel {
       endpointUrl: json['endpoint_url'],
       description: json['description'],
       iconColor: json['icon_color'],
+      isRouter: json['is_router'] ?? false,
+      temperature: json['temperature'] != null ? double.tryParse(json['temperature'].toString()) : null,
+      maxTokens: json['max_tokens'] != null ? int.tryParse(json['max_tokens'].toString()) : null,
     );
   }
 
@@ -145,6 +154,9 @@ class LlmModel {
       'is_active': active,
       if (description != null) 'description': description,
       if (iconColor != null) 'icon_color': iconColor,
+      'is_router': isRouter,
+      if (temperature != null) 'temperature': temperature,
+      if (maxTokens != null) 'max_tokens': maxTokens,
     };
   }
 }
@@ -411,12 +423,16 @@ class ChatMessage {
   bool isUser;
   String text;
   String? modelName;
+  String? category;
+  String? routingMethod;
   List<ChatAttachment> attachments;
 
   ChatMessage({
     required this.isUser,
     required this.text,
     this.modelName,
+    this.category,
+    this.routingMethod,
     this.attachments = const [],
   });
 }
@@ -427,6 +443,7 @@ class ChatSession {
   final ChatMode mode;
   final List<ChatMessage> messages;
   DateTime updatedAt;
+  String? backendSessionId;
 
   ChatSession({
     required this.id,
@@ -434,6 +451,7 @@ class ChatSession {
     required this.mode,
     List<ChatMessage>? messages,
     DateTime? updatedAt,
+    this.backendSessionId,
   })  : messages = messages ?? [],
         updatedAt = updatedAt ?? DateTime.now();
 

@@ -225,4 +225,36 @@ class ApiService{
             return false;
         }
     }
+
+    // ─── Chat API ───
+
+    /// POST /api/chat/send — send prompt in smart routing mode.
+    static Future<Map<String, dynamic>?> sendChatMessage({
+        required String prompt,
+        String? sessionId,
+    }) async {
+        try {
+            final headers = await _authHeaders();
+            final bodyMap = <String, dynamic>{
+                'prompt': prompt,
+                if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+            };
+            final response = await http.post(
+                Uri.parse('$baseUrl/chat/send'),
+                headers: headers,
+                body: json.encode(bodyMap),
+            );
+            if (response.statusCode == 200 || response.statusCode == 201) {
+                print('Chat response received: ${response.body}');
+                return json.decode(response.body) as Map<String, dynamic>;
+            } else {
+                print('Chat send failed: ${response.statusCode}');
+                print('Error Body: ${response.body}');
+                return null;
+            }
+        } catch (e) {
+            print('Error sending chat message: $e');
+            return null;
+        }
+    }
 }

@@ -371,24 +371,53 @@ class _AddModelPanel extends StatefulWidget {
 class _AddModelPanelState extends State<_AddModelPanel> {
   int _selectedProvider = 0;
   bool _isActive = true;
+  bool _isRouter = false;
   bool _obscureKey = true;
   bool _isSubmitting = false;
   final Set<String> _selectedTags = {'coding', 'reasoning', 'creative', 'general'};
+
+  String? _displayNameError;
+  String? _modelIdError;
+  String? _routingTagsError;
+  String? _temperatureError;
+  String? _maxTokensError;
 
   final _displayNameCtrl = TextEditingController();
   final _modelIdCtrl = TextEditingController();
   final _apiKeyCtrl = TextEditingController();
   final _endpointCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
+  final _temperatureCtrl = TextEditingController();
+  final _maxTokensCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _displayNameCtrl.addListener(() {
+      if (_displayNameError != null) setState(() => _displayNameError = null);
+    });
+    _modelIdCtrl.addListener(() {
+      if (_modelIdError != null) setState(() => _modelIdError = null);
+    });
+    _temperatureCtrl.addListener(() {
+      if (_temperatureError != null) setState(() => _temperatureError = null);
+    });
+    _maxTokensCtrl.addListener(() {
+      if (_maxTokensError != null) setState(() => _maxTokensError = null);
+    });
+
     final m = widget.existingModel;
     if (m != null) {
       _displayNameCtrl.text = m.name;
       _modelIdCtrl.text = m.modelCode;
       _isActive = m.active;
+      _isRouter = m.isRouter;
+      if (m.temperature != null) {
+        _temperatureCtrl.text = m.temperature.toString();
+      }
+      if (m.maxTokens != null) {
+        _maxTokensCtrl.text = m.maxTokens.toString();
+      }
       _endpointCtrl.text = m.endpointUrl ?? '';
       _descriptionCtrl.text = m.description ?? '';
       _selectedTags
@@ -407,6 +436,8 @@ class _AddModelPanelState extends State<_AddModelPanel> {
     _apiKeyCtrl.dispose();
     _endpointCtrl.dispose();
     _descriptionCtrl.dispose();
+    _temperatureCtrl.dispose();
+    _maxTokensCtrl.dispose();
     super.dispose();
   }
 
@@ -415,13 +446,42 @@ class _AddModelPanelState extends State<_AddModelPanel> {
     final name = _displayNameCtrl.text.trim();
     final modelId = _modelIdCtrl.text.trim();
 
-    // Basic validation
+    String? nameErr;
+    String? idErr;
+    String? tagsErr;
+    String? tempErr;
+    String? maxTokensErr;
+
+    // Field validations
     if (name.isEmpty) {
-      _showError('Display name is required');
-      return;
+      nameErr = 'Display name is required';
     }
     if (modelId.isEmpty) {
-      _showError('Model ID is required');
+      idErr = 'Model ID is required';
+    }
+    if (!_isRouter && _selectedTags.isEmpty) {
+      tagsErr = 'Please select at least one routing tag';
+    }
+
+    final tempStr = _temperatureCtrl.text.trim();
+    if (tempStr.isNotEmpty && double.tryParse(tempStr) == null) {
+      tempErr = 'Enter a valid decimal number (e.g. 0.7)';
+    }
+
+    final maxTokensStr = _maxTokensCtrl.text.trim();
+    if (maxTokensStr.isNotEmpty && int.tryParse(maxTokensStr) == null) {
+      maxTokensErr = 'Enter a valid integer (e.g. 2048)';
+    }
+
+    setState(() {
+      _displayNameError = nameErr;
+      _modelIdError = idErr;
+      _routingTagsError = tagsErr;
+      _temperatureError = tempErr;
+      _maxTokensError = maxTokensErr;
+    });
+
+    if (nameErr != null || idErr != null || tagsErr != null || tempErr != null || maxTokensErr != null) {
       return;
     }
 
@@ -431,9 +491,24 @@ class _AddModelPanelState extends State<_AddModelPanel> {
       'name': name,
       'provider': provider.backendKey,
       'model_id': modelId,
-      'routing_tags': _selectedTags.toList(),
+      'routing_tags': _isRouter ? [] : _selectedTags.toList(),
       'is_active': _isActive,
+      'is_router': _isRouter,
     };
+
+    if (tempStr.isNotEmpty) {
+      final parsedTemp = double.tryParse(tempStr);
+      if (parsedTemp != null) {
+        data['temperature'] = parsedTemp;
+      }
+    }
+
+    if (maxTokensStr.isNotEmpty) {
+      final parsedTokens = int.tryParse(maxTokensStr);
+      if (parsedTokens != null) {
+        data['max_tokens'] = parsedTokens;
+      }
+    }
 
     // Only send api_key if user entered something
     final apiKey = _apiKeyCtrl.text.trim();
@@ -615,6 +690,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                     _buildTextField(
                       controller: _displayNameCtrl,
                       hint: 'e.g. GPT-4 Turbo, Claude 3',
+                      errorText: _displayNameError,
                     ),
 
                     const SizedBox(height: 16),
@@ -625,6 +701,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                     _buildTextField(
                       controller: _modelIdCtrl,
                       hint: 'e.g. gpt-4o, gemini-1.5-pro',
+                      errorText: _modelIdError,
                     ),
 
                     const SizedBox(height: 16),
@@ -668,50 +745,150 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                       maxLines: 2,
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
-                    // ── Routing Tags ──
-                    _sectionLabel('ROUTING TAGS (best suited for)'),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _allRoutingTags.map((tag) {
-                        final selected = _selectedTags.contains(tag);
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              if (selected) {
-                                _selectedTags.remove(tag);
-                              } else {
-                                _selectedTags.add(tag);
-                              }
-                            });
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? AppColors.purple.withValues(alpha: 0.15)
-                                  : context.surface2,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: selected ? AppColors.purple : context.borderColor,
-                              ),
-                            ),
-                            child: Text(
-                              tag,
-                              style: TextStyle(
-                                color: selected ? AppColors.purple : context.textSecondary,
-                                fontSize: 12.5,
-                                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                              ),
+                    // ── Temperature ──
+                    _sectionLabel('TEMPERATURE'),
+                    const SizedBox(height: 8),
+                    _buildTextField(
+                      controller: _temperatureCtrl,
+                      hint: 'e.g. 0.7',
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      errorText: _temperatureError,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // ── Max Tokens ──
+                    _sectionLabel('MAX TOKENS'),
+                    const SizedBox(height: 8),
+                    _buildTextField(
+                      controller: _maxTokensCtrl,
+                      hint: 'e.g. 2048',
+                      keyboardType: TextInputType.number,
+                      errorText: _maxTokensError,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // ── Routing Checkbox ──
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: context.surface2,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.borderColor),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'is this for Routing purpose?',
+                                  style: TextStyle(
+                                    color: context.textPrimary,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 1),
+                                Text(
+                                  'Enable if this model is used for routing decisions',
+                                  style: TextStyle(
+                                    color: context.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      }).toList(),
+                          Checkbox(
+                            value: _isRouter,
+                            onChanged: (v) => setState(() {
+                              _isRouter = v ?? false;
+                              if (_isRouter) _routingTagsError = null;
+                            }),
+                            activeColor: AppColors.purple,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          ),
+                        ],
+                      ),
                     ),
+
+                    if (!_isRouter) ...[
+                      const SizedBox(height: 20),
+
+                      // ── Routing Tags ──
+                      _sectionLabel('ROUTING TAGS (best suited for)'),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _allRoutingTags.map((tag) {
+                          final selected = _selectedTags.contains(tag);
+                          return GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                if (selected) {
+                                  _selectedTags.remove(tag);
+                                } else {
+                                  _selectedTags.add(tag);
+                                }
+                                if (_routingTagsError != null) {
+                                  _routingTagsError = null;
+                                }
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? AppColors.purple.withValues(alpha: 0.15)
+                                    : context.surface2,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: selected ? AppColors.purple : context.borderColor,
+                                ),
+                              ),
+                              child: Text(
+                                tag,
+                                style: TextStyle(
+                                  color: selected ? AppColors.purple : context.textSecondary,
+                                  fontSize: 12.5,
+                                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      if (_routingTagsError != null) ...[
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 14),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  _routingTagsError!,
+                                  style: const TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
 
                     const SizedBox(height: 24),
 
@@ -830,28 +1007,66 @@ class _AddModelPanelState extends State<_AddModelPanel> {
     bool obscure = false,
     Widget? suffixIcon,
     int maxLines = 1,
+    TextInputType? keyboardType,
+    String? errorText,
   }) {
-    return TextField(
-      controller: controller,
-      obscureText: obscure,
-      maxLines: maxLines,
-      style: TextStyle(color: context.textPrimary, fontSize: 13.5),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6), fontSize: 13),
-        filled: true,
-        fillColor: context.surface2,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        suffixIcon: suffixIcon,
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: context.borderColor),
+    final hasError = errorText != null && errorText.isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: controller,
+          obscureText: obscure,
+          maxLines: maxLines,
+          keyboardType: keyboardType,
+          style: TextStyle(color: context.textPrimary, fontSize: 13.5),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6), fontSize: 13),
+            filled: true,
+            fillColor: context.surface2,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            suffixIcon: suffixIcon,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: hasError ? Colors.redAccent : context.borderColor,
+                width: hasError ? 1.5 : 1.0,
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: hasError ? Colors.redAccent : AppColors.purple,
+                width: 1.5,
+              ),
+            ),
+          ),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.purple, width: 1.5),
-        ),
-      ),
+        if (hasError) ...[
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 13),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    errorText,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -970,6 +1185,24 @@ class _ModelRow extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (model.isRouter) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.purple.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'Router',
+                          style: TextStyle(
+                            color: AppColors.purple,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 2),

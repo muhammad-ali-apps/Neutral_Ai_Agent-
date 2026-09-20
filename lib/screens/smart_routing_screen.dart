@@ -1,16 +1,16 @@
-import 'dart:math';
-import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
+import 'package:markdown/markdown.dart' as md;
 import '../app_theme.dart';
 import '../models.dart';
-import '../services/dummy_response_generator.dart';
+import '../services/api_services.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
-import '../widgets/formatted_message_view.dart';
 
 /// Smart Routing screen — routes prompts to the best available model.
 class SmartRoutingScreen extends StatefulWidget {
@@ -59,8 +59,8 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     _notifySession();
   }
 
-  void _send(String text, List<ChatAttachment> attachments) {
-    if (text.trim().isEmpty && attachments.isEmpty) return;
+  void _send(String text, List<ChatAttachment> attachments) async {
+    if (text.trim().isEmpty) return;
     setState(() {
       _session ??= ChatSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -77,39 +77,46 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _thinking = true;
     });
     _notifySession();
-    _appendAiResponse(prompt: text, attachments: attachments);
-  }
 
-  void _appendAiResponse({String? prompt, List<ChatAttachment>? attachments}) {
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (!mounted || _session == null) return;
-      final pool = modelStore.active.isNotEmpty
-          ? modelStore.active
-          : (modelStore.models.isNotEmpty ? modelStore.models : seedModels());
-      final rnd = Random();
-      final model = pool.isNotEmpty ? pool[rnd.nextInt(pool.length)] : seedModels().first;
+    final response = await ApiService.sendChatMessage(
+      prompt: text,
+      sessionId: _session?.backendSessionId,
+    );
 
-      final lastUserMsg = _session!.messages.reversed.where((m) => m.isUser).cast<ChatMessage?>().firstOrNull;
-      final effectivePrompt = prompt ?? lastUserMsg?.text ?? '';
-      final effectiveAttachments = attachments ?? lastUserMsg?.attachments ?? [];
+    if (!mounted || _session == null) return;
 
-      final aiText = DummyResponseGenerator.generate(
-        prompt: effectivePrompt,
-        attachments: effectiveAttachments,
-        modelName: model.name,
-        modeName: 'Smart Routing',
-      );
+    if (response != null) {
+      final replyText = response['reply']?.toString() ?? 'No response returned';
+      final modelUsed = response['model_used']?.toString();
+      final category = response['category']?.toString();
+      final routingMethod = response['routing_method']?.toString();
+      final returnedSessionId = response['session_id']?.toString();
+
+      if (returnedSessionId != null && returnedSessionId.isNotEmpty) {
+        _session!.backendSessionId = returnedSessionId;
+      }
 
       setState(() {
         _thinking = false;
         _session!.messages.add(ChatMessage(
           isUser: false,
-          modelName: model.name,
-          text: aiText,
+          text: replyText,
+          modelName: modelUsed,
+          category: category,
+          routingMethod: routingMethod,
         ));
         historyStore.touch(_session!);
       });
-    });
+    } else {
+      setState(() {
+        _thinking = false;
+        _session!.messages.add(ChatMessage(
+          isUser: false,
+          text: 'Failed to connect to AI server. Please check your backend connection.',
+        ));
+        historyStore.touch(_session!);
+      });
+    }
   }
 
   void _sendSuggestion(String text) => _send(text, []);
@@ -128,7 +135,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     });
   }
 
-  void _confirmEdit(int index) {
+  void _confirmEdit(int index) async {
     final newText = _editController!.text.trim();
     if (newText.isEmpty) return;
     setState(() {
@@ -142,42 +149,86 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _thinking = true;
     });
     historyStore.touch(_session!);
-    _appendAiResponse(prompt: newText, attachments: _session!.messages[index].attachments);
-  }
 
-  void _regenerateAt(int index) {
-    final pool = modelStore.active.isNotEmpty
-        ? modelStore.active
-        : (modelStore.models.isNotEmpty ? modelStore.models : seedModels());
-    final rnd = Random();
-    final model = pool.isNotEmpty ? pool[rnd.nextInt(pool.length)] : seedModels().first;
-
-    // Find preceding user prompt
-    String prompt = '';
-    List<ChatAttachment> attachments = [];
-    for (int i = index - 1; i >= 0; i--) {
-      if (_session!.messages[i].isUser) {
-        prompt = _session!.messages[i].text;
-        attachments = _session!.messages[i].attachments;
-        break;
-      }
-    }
-
-    final regeneratedText = DummyResponseGenerator.generate(
-      prompt: prompt,
-      attachments: attachments,
-      modelName: model.name,
-      modeName: 'Smart Routing',
+    final response = await ApiService.sendChatMessage(
+      prompt: newText,
+      sessionId: _session?.backendSessionId,
     );
 
+    if (!mounted || _session == null) return;
+
+    if (response != null) {
+      final replyText = response['reply']?.toString() ?? 'No response returned';
+      final modelUsed = response['model_used']?.toString();
+      final category = response['category']?.toString();
+      final routingMethod = response['routing_method']?.toString();
+      final returnedSessionId = response['session_id']?.toString();
+
+      if (returnedSessionId != null && returnedSessionId.isNotEmpty) {
+        _session!.backendSessionId = returnedSessionId;
+      }
+
+      setState(() {
+        _thinking = false;
+        _session!.messages.add(ChatMessage(
+          isUser: false,
+          text: replyText,
+          modelName: modelUsed,
+          category: category,
+          routingMethod: routingMethod,
+        ));
+        historyStore.touch(_session!);
+      });
+    } else {
+      setState(() {
+        _thinking = false;
+        _session!.messages.add(ChatMessage(
+          isUser: false,
+          text: 'Failed to connect to AI server.',
+        ));
+        historyStore.touch(_session!);
+      });
+    }
+  }
+
+  void _regenerateAt(int index) async {
+    if (_session == null || index < 1) return;
+    final userPrompt = _session!.messages[index - 1].text;
+    if (userPrompt.isEmpty) return;
+
     setState(() {
-      _session!.messages[index] = ChatMessage(
-        isUser: false,
-        modelName: model.name,
-        text: regeneratedText,
-      );
+      _thinking = true;
     });
-    historyStore.touch(_session!);
+
+    final response = await ApiService.sendChatMessage(
+      prompt: userPrompt,
+      sessionId: _session?.backendSessionId,
+    );
+
+    if (!mounted || _session == null) return;
+
+    if (response != null) {
+      final replyText = response['reply']?.toString() ?? 'No response returned';
+      final modelUsed = response['model_used']?.toString();
+      final category = response['category']?.toString();
+      final routingMethod = response['routing_method']?.toString();
+
+      setState(() {
+        _thinking = false;
+        _session!.messages[index] = ChatMessage(
+          isUser: false,
+          text: replyText,
+          modelName: modelUsed,
+          category: category,
+          routingMethod: routingMethod,
+        );
+        historyStore.touch(_session!);
+      });
+    } else {
+      setState(() {
+        _thinking = false;
+      });
+    }
   }
 
   void _copy(String text) {
@@ -251,29 +302,10 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                 child: const Icon(Icons.bolt_rounded, color: AppColors.purple, size: 30),
               ),
               const SizedBox(height: 16),
-              // Text('Smart Routing Mode',
-              //     style:
-              //         TextStyle(color: context.textPrimary, fontSize: 20, fontWeight: FontWeight.w700)),
-              // const SizedBox(height: 8),
-             AnimatedTextKit(
-                animatedTexts: [
-                  TypewriterAnimatedText(
-                    'Smart Routing Mode',
-                    textStyle: TextStyle(color: context.textPrimary, fontSize: 20, fontWeight: FontWeight.w700),
-                    speed: const Duration(milliseconds: 200),
-                  ),
-                ],
-                totalRepeatCount: 19,
-                pause: const Duration(milliseconds: 600),
-                displayFullTextOnTap: true,
-                stopPauseOnTap: true,
+              Text(
+                'Smart Routing Mode',
+                style: TextStyle(color: context.textPrimary, fontSize: 20, fontWeight: FontWeight.w700),
               ),
-              // Text(
-              //   'Type any prompt — the system will automatically analyze it and route it '
-              //   'to the best AI model for that task.',
-              //   textAlign: TextAlign.center,
-              //   style: TextStyle(color: context.textSecondary, fontSize: 13.5, height: 1.45),
-              // ),
               const SizedBox(height: 24),
               LayoutBuilder(
                 builder: (context, constraints) {
@@ -308,7 +340,6 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     const claudeBorderDark = Color(0xFF3E3C37);
     const claudeUserLight = Color(0xFFF5F3ED);
     const claudeBorderLight = Color(0xFFE2DFD6);
-    const claudeAccent = Color(0xFFDA7756);
 
     return ListView.builder(
       padding: EdgeInsets.symmetric(
@@ -367,71 +398,103 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Claude-styled Attachments at top of bubble
-                    if (m.attachments.isNotEmpty)
-                      ChatAttachmentsView(attachments: m.attachments, isUser: m.isUser),
-                    // Model identity header for Assistant
+                    if (m.isUser && m.attachments.isNotEmpty) ...[
+                      ChatAttachmentsView(attachments: m.attachments, isUser: true),
+                      const SizedBox(height: 6),
+                    ],
                     if (!m.isUser) ...[
                       Row(
                         children: [
-                          Container(
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: model?.color ?? claudeAccent,
-                              shape: BoxShape.circle,
+                          if (model != null) ...[
+                            CircleAvatar(
+                              radius: 10,
+                              backgroundColor: model.color,
+                              child: Text(model.badgeLetter,
+                                  style: const TextStyle(fontSize: 10, color: Colors.white)),
                             ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              model?.badgeLetter ?? 'C',
-                              style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            m.modelName ?? 'Claude 3.5 Sonnet',
-                            style: TextStyle(
-                              color: context.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: claudeAccent.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'Smart Routed',
+                            const SizedBox(width: 6),
+                          ],
+                          Text(m.modelName ?? 'AI Model',
                               style: TextStyle(
-                                color: claudeAccent,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
+                                  color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 12.5)),
+                          if (m.category != null && m.category!.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.purple.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                m.category!,
+                                style: const TextStyle(color: AppColors.purple, fontSize: 10, fontWeight: FontWeight.w600),
                               ),
                             ),
-                          ),
+                          ],
+                          if (m.routingMethod != null && m.routingMethod!.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.geminiBlue.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                m.routingMethod == 'llm_router' ? 'LLM Router' : m.routingMethod!,
+                                style: const TextStyle(color: AppColors.geminiBlue, fontSize: 10, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 10),
                     ],
-                    // Message content rendered with Markdown / Code blocks
-                    if (m.isUser)
-                      Text(
-                        m.text,
-                        style: TextStyle(
-                          color: isDark ? Colors.white : const Color(0xFF1E1E1E),
-                          fontSize: 14.5,
-                          height: 1.5,
-                        ),
-                      )
-                    else
-                      FormattedMessageView(
-                        text: m.text,
-                        isUser: false,
-                        textColor: context.textPrimary,
-                      ),
+                    m.isUser
+                        ? SelectionArea(
+                            child: Text(
+                              m.text,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                height: 1.45,
+                              ),
+                            ),
+                          )
+                        : SelectionArea(
+                            child: MarkdownBody(
+                              data: m.text,
+                              shrinkWrap: true,
+                              builders: {
+                                'latex': LatexElementBuilder(
+                                  textStyle: TextStyle(color: context.textPrimary, fontSize: 14),
+                                ),
+                              },
+                              extensionSet: md.ExtensionSet(
+                                [LatexBlockSyntax()],
+                                [LatexInlineSyntax()],
+                              ),
+                              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                p: TextStyle(color: context.textPrimary, fontSize: 14, height: 1.45),
+                                h1: TextStyle(color: context.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+                                h2: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                                h3: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+                                strong: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
+                                em: TextStyle(color: context.textPrimary, fontStyle: FontStyle.italic),
+                                code: TextStyle(
+                                  color: AppColors.purple,
+                                  backgroundColor: context.surface.withValues(alpha: 0.5),
+                                  fontSize: 12.5,
+                                  fontFamily: 'monospace',
+                                ),
+                                codeblockDecoration: BoxDecoration(
+                                  color: context.surface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: context.borderColor),
+                                ),
+                                listBullet: TextStyle(color: context.textPrimary, fontSize: 14),
+                              ),
+                            ),
+                          ),
                   ],
                 ),
               ),
