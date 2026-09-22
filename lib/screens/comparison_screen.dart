@@ -37,7 +37,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   }
 
   void _initDefaultSelection() {
-    final pool = modelStore.models.isNotEmpty ? modelStore.models : seedModels();
+    final pool = modelStore.models;
     final active = pool.where((m) => m.active).toList();
     final toSelect = active.isNotEmpty ? active : pool;
     for (final m in toSelect.take(2)) {
@@ -46,7 +46,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   }
 
   List<LlmModel> get _selectedModels {
-    final pool = modelStore.models.isNotEmpty ? modelStore.models : seedModels();
+    final pool = modelStore.models;
     final selected = pool.where((m) => _selected.contains(m.id)).toList();
     if (selected.isNotEmpty) return selected;
     // Fallback if none selected

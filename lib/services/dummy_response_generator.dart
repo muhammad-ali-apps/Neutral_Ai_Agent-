@@ -1,14 +1,14 @@
 import '../models.dart';
 
 class DummyResponseGenerator {
-  /// Generates realistic, rich Claude-style AI responses for uploaded projects, screenshots, and text prompts.
+  /// Generates realistic AI-style responses for uploaded projects, screenshots, and text prompts.
   static String generate({
     required String prompt,
     List<ChatAttachment>? attachments,
     String? modelName,
     String? modeName,
   }) {
-    final model = modelName ?? 'Claude 3.5 Sonnet';
+    final model = modelName ?? 'AI Model';
     final cleanPrompt = prompt.trim();
     final lowerPrompt = cleanPrompt.toLowerCase();
 
