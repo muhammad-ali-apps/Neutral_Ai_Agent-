@@ -195,158 +195,185 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: context.borderColor)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ChatGPT style attachment preview cards
-          if (_attachments.isNotEmpty) ...[
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _attachments.map((a) => _buildAttachmentPreview(a)).toList(),
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 800),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // ChatGPT style attachment preview cards
+            if (_attachments.isNotEmpty) ...[
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _attachments.map((a) => _buildAttachmentPreview(a)).toList(),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Container(
-            decoration: BoxDecoration(
-              color: context.surface2,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: context.borderColor),
-            ),
-            padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 120),
-                  child: Focus(
-                    onKeyEvent: (node, event) {
-                      final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
-                          event.logicalKey == LogicalKeyboardKey.numpadEnter;
-                      if (event is KeyDownEvent && isEnter) {
-                        if (HardwareKeyboard.instance.isShiftPressed) {
+              const SizedBox(height: 8),
+            ],
+            Container(
+              decoration: BoxDecoration(
+                color: context.isDark ? const Color(0xFF2F2F2F) : const Color(0xFFF4F4F4),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(
+                  color: context.isDark ? const Color(0xFF383838) : const Color(0xFFE5E5E5),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _busy
+                      ? const Padding(
+                          padding: EdgeInsets.all(7),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.openaiGreen,
+                            ),
+                          ),
+                        )
+                      : PopupMenuButton<String>(
+                          tooltip: 'Attach file',
+                          offset: const Offset(0, -160),
+                          color: context.surface2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(color: context.borderColor),
+                          ),
+                          onSelected: (v) {
+                            if (v == 'Camera') _pickCamera();
+                            if (v == 'Screenshot') _pickScreenshot();
+                            if (v == 'Project') _pickProject();
+                          },
+                          itemBuilder: (context) => [
+                            _menuItem(
+                              context,
+                              'Screenshot',
+                              Icons.screenshot_monitor_outlined,
+                              'Attach image / screenshot',
+                            ),
+                            _menuItem(
+                              context,
+                              'Project',
+                              Icons.folder_outlined,
+                              'Attach project file / code',
+                            ),
+                            _menuItem(
+                              context,
+                              'Camera',
+                              Icons.photo_camera_outlined,
+                              'Take a photo',
+                            ),
+                          ],
+                          child: Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: context.isDark ? Colors.white10 : Colors.black12,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.add_rounded,
+                              color: context.textPrimary,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 140),
+                      child: Focus(
+                        onKeyEvent: (node, event) {
+                          final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+                              event.logicalKey == LogicalKeyboardKey.numpadEnter;
+                          if (event is KeyDownEvent && isEnter) {
+                            if (HardwareKeyboard.instance.isShiftPressed) {
+                              return KeyEventResult.ignored;
+                            }
+                            _submit();
+                            return KeyEventResult.handled;
+                          }
                           return KeyEventResult.ignored;
-                        }
-                        _submit();
-                        return KeyEventResult.handled;
-                      }
-                      return KeyEventResult.ignored;
-                    },
-                    child: TextField(
-                      controller: widget.controller,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.newline,
-                      style: TextStyle(color: context.textPrimary, fontSize: 14),
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                        hintText: _effectiveHint,
-                        hintStyle: TextStyle(color: context.textSecondary, fontSize: 13.5),
+                        },
+                        child: TextField(
+                          controller: widget.controller,
+                          minLines: 1,
+                          maxLines: 6,
+                          textInputAction: TextInputAction.newline,
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontSize: 14.5,
+                            height: 1.35,
+                          ),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                            hintText: _effectiveHint,
+                            hintStyle: TextStyle(
+                              color: context.textSecondary,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Row(
-                  children: [
-                    _busy
-                        ? const Padding(
-                            padding: EdgeInsets.all(7),
-                            child: SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.purple,
-                              ),
-                            ),
-                          )
-                        : PopupMenuButton<String>(
-                            tooltip: 'Add attachment',
-                            offset: const Offset(0, -160),
-                            color: context.surface2,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: BorderSide(color: context.borderColor),
-                            ),
-                            onSelected: (v) {
-                              if (v == 'Camera') _pickCamera();
-                              if (v == 'Screenshot') _pickScreenshot();
-                              if (v == 'Project') _pickProject();
-                            },
-                            itemBuilder: (context) => [
-                              _menuItem(
-                                context,
-                                'Screenshot',
-                                Icons.screenshot_monitor_outlined,
-                                'Attach image / screenshot',
-                              ),
-                              _menuItem(
-                                context,
-                                'Project',
-                                Icons.folder_outlined,
-                                'Attach project file / code',
-                              ),
-                              _menuItem(
-                                context,
-                                'Camera',
-                                Icons.photo_camera_outlined,
-                                'Take a photo',
-                              ),
-                            ],
-                            child: Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: AppColors.purple.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.add_rounded, color: AppColors.purple, size: 20),
-                            ),
+                  const SizedBox(width: 8),
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: widget.controller,
+                    builder: (context, value, _) {
+                      final canSend = value.text.trim().isNotEmpty || _attachments.isNotEmpty;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 120),
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: canSend
+                              ? (context.isDark ? Colors.white : Colors.black)
+                              : (context.isDark ? Colors.white24 : Colors.black12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: canSend ? _submit : null,
+                          icon: Icon(
+                            Icons.arrow_upward_rounded,
+                            color: canSend
+                                ? (context.isDark ? Colors.black : Colors.white)
+                                : context.textSecondary,
+                            size: 18,
                           ),
-                    const Spacer(),
-                    ValueListenableBuilder<TextEditingValue>(
-                      valueListenable: widget.controller,
-                      builder: (context, value, _) {
-                        final canSend = value.text.trim().isNotEmpty || _attachments.isNotEmpty;
-                        return AnimatedContainer(
-                          duration: const Duration(milliseconds: 120),
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: canSend ? AppColors.purple : context.borderColor,
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                          child: IconButton(
-                            padding: EdgeInsets.zero,
-                            onPressed: canSend ? _submit : null,
-                            icon: Icon(
-                              Icons.arrow_upward_rounded,
-                              color: canSend ? Colors.white : context.textSecondary,
-                              size: 17,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            'Press Enter to send, Shift+Enter for new line',
-            style: TextStyle(color: context.textSecondary, fontSize: 10.5),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Text(
+              'ChatGPT can make mistakes. Check important info.',
+              style: TextStyle(
+                color: context.textSecondary.withValues(alpha: 0.7),
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

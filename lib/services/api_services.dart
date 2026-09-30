@@ -2,6 +2,76 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Cleans raw AI response text to eliminate unwanted brackets, Python tuple syntax, 
+/// stringified lists, quotes, and escaped characters.
+String cleanAiResponse(dynamic rawReply) {
+  if (rawReply == null) return '';
+  String text = '';
+
+  if (rawReply is List) {
+    text = rawReply.map((e) => cleanAiResponse(e)).where((e) => e.isNotEmpty).join('\n\n');
+  } else if (rawReply is Map) {
+    if (rawReply.containsKey('reply')) {
+      text = cleanAiResponse(rawReply['reply']);
+    } else if (rawReply.containsKey('text')) {
+      text = cleanAiResponse(rawReply['text']);
+    } else if (rawReply.containsKey('content')) {
+      text = cleanAiResponse(rawReply['content']);
+    } else if (rawReply.containsKey('message')) {
+      text = cleanAiResponse(rawReply['message']);
+    } else {
+      text = rawReply.values.map((e) => cleanAiResponse(e)).join('\n\n');
+    }
+  } else {
+    text = rawReply.toString().trim();
+  }
+
+  // Handle Python tuple/list string representations e.g. `("response text",)` or `('response text', 200)`
+  final tupleWithComma = RegExp(r'^\s*[\(\[]\s*["' "'" + r']([\s\S]*?)["' + "'" + r']\s*,\s*[\s\S]*[\)\]]\s*$');
+  if (tupleWithComma.hasMatch(text)) {
+    final match = tupleWithComma.firstMatch(text);
+    if (match != null && match.group(1) != null) {
+      text = match.group(1)!;
+    }
+  }
+
+  // Handle `("response text")` or `['response text']`
+  final tupleSimple = RegExp(r'^\s*[\(\[]\s*["' "'" + r']([\s\S]*?)["' + "'" + r']\s*[\)\]]\s*$');
+  if (tupleSimple.hasMatch(text)) {
+    final match = tupleSimple.firstMatch(text);
+    if (match != null && match.group(1) != null) {
+      text = match.group(1)!;
+    }
+  }
+
+  text = text.trim();
+  if ((text.startsWith('(') && text.endsWith(')')) || (text.startsWith('[') && text.endsWith(']'))) {
+    text = text.substring(1, text.length - 1).trim();
+  }
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.substring(1, text.length - 1).trim();
+  }
+
+  // Unescape standard escaped characters
+  text = text
+      .replaceAll('\\n', '\n')
+      .replaceAll('\\t', '\t')
+      .replaceAll('\\"', '"')
+      .replaceAll("\\'", "'");
+
+  if (text.startsWith('("') || text.startsWith("('")) {
+    text = text.substring(2).trim();
+  }
+  if (text.endsWith('",)') || text.endsWith("',)") || text.endsWith('",') || text.endsWith("',")) {
+    text = text.substring(0, text.length - 2).trim();
+  }
+  if (text.endsWith(',') || (text.endsWith(')') && !text.contains('('))) {
+    text = text.substring(0, text.length - 1).trim();
+  }
+
+  return text.trim();
+}
+
 class ApiService{
     static const String baseUrl = "http://127.0.0.1:8000/api";
 
@@ -246,7 +316,11 @@ class ApiService{
             );
             if (response.statusCode == 200 || response.statusCode == 201) {
                 print('Chat response received: ${response.body}');
-                return json.decode(response.body) as Map<String, dynamic>;
+                var resMap = json.decode(response.body) as Map<String, dynamic>;
+                if (resMap.containsKey('reply')) {
+                  resMap['reply'] = cleanAiResponse(resMap['reply']);
+                }
+                return resMap;
             } else {
                 print('Chat send failed: ${response.statusCode}');
                 print('Error Body: ${response.body}');
@@ -258,3 +332,4 @@ class ApiService{
         }
     }
 }
+

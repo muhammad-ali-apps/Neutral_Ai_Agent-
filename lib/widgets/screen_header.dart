@@ -38,17 +38,13 @@ class ScreenHeader extends StatelessWidget {
             const SizedBox(width: 4),
           ],
           Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppColors.purple, AppColors.purpleGradientEnd],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(10),
+            width: 34,
+            height: 34,
+            decoration: const BoxDecoration(
+              color: AppColors.openaiGreen,
+              shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: Colors.white, size: 20),
+            child: Icon(icon, color: Colors.white, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(

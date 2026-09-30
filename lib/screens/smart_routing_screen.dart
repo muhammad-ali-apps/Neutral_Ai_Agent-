@@ -86,7 +86,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     if (!mounted || _session == null) return;
 
     if (response != null) {
-      final replyText = response['reply']?.toString() ?? 'No response returned';
+      final replyText = cleanAiResponse(response['reply']);
       final modelUsed = response['model_used']?.toString();
       final category = response['category']?.toString();
       final routingMethod = response['routing_method']?.toString();
@@ -100,7 +100,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         _thinking = false;
         _session!.messages.add(ChatMessage(
           isUser: false,
-          text: replyText,
+          text: replyText.isNotEmpty ? replyText : 'No response returned',
           modelName: modelUsed,
           category: category,
           routingMethod: routingMethod,
@@ -158,7 +158,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     if (!mounted || _session == null) return;
 
     if (response != null) {
-      final replyText = response['reply']?.toString() ?? 'No response returned';
+      final replyText = cleanAiResponse(response['reply']);
       final modelUsed = response['model_used']?.toString();
       final category = response['category']?.toString();
       final routingMethod = response['routing_method']?.toString();
@@ -172,7 +172,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         _thinking = false;
         _session!.messages.add(ChatMessage(
           isUser: false,
-          text: replyText,
+          text: replyText.isNotEmpty ? replyText : 'No response returned',
           modelName: modelUsed,
           category: category,
           routingMethod: routingMethod,
@@ -208,7 +208,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     if (!mounted || _session == null) return;
 
     if (response != null) {
-      final replyText = response['reply']?.toString() ?? 'No response returned';
+      final replyText = cleanAiResponse(response['reply']);
       final modelUsed = response['model_used']?.toString();
       final category = response['category']?.toString();
       final routingMethod = response['routing_method']?.toString();
@@ -217,7 +217,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         _thinking = false;
         _session!.messages[index] = ChatMessage(
           isUser: false,
-          text: replyText,
+          text: replyText.isNotEmpty ? replyText : 'No response returned',
           modelName: modelUsed,
           category: category,
           routingMethod: routingMethod,
@@ -289,24 +289,30 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
+          constraints: const BoxConstraints(maxWidth: 720),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
+                width: 60,
+                height: 60,
+                decoration: const BoxDecoration(
+                  color: AppColors.openaiGreen,
+                  shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.bolt_rounded, color: AppColors.purple, size: 30),
+                child: const Icon(Icons.auto_awesome, color: Colors.white, size: 28),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               Text(
-                'Smart Routing Mode',
-                style: TextStyle(color: context.textPrimary, fontSize: 20, fontWeight: FontWeight.w700),
+                'What can I help with today?',
+                style: TextStyle(
+                  color: context.textPrimary,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.3,
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
               LayoutBuilder(
                 builder: (context, constraints) {
                   final isNarrow = constraints.maxWidth < 520;
@@ -315,8 +321,8 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     crossAxisSpacing: 12,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: isNarrow ? 4.6 : 2.8,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: isNarrow ? 4.8 : 3.0,
                     children: _suggestions.map((s) {
                       return _SuggestionCard(text: s, onTap: () => _sendSuggestion(s));
                     }).toList(),
@@ -332,29 +338,20 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
 
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bubbleMaxWidth = screenWidth < 660 ? screenWidth * 0.90 : 640.0;
     final isDark = context.isDark;
 
-    const claudeUserDark = Color(0xFF262522); // Claude warm charcoal
-    const claudeBorderDark = Color(0xFF3E3C37);
-    const claudeUserLight = Color(0xFFF5F3ED);
-    const claudeBorderLight = Color(0xFFE2DFD6);
-
     return ListView.builder(
-      padding: EdgeInsets.symmetric(
-        horizontal: screenWidth < 500 ? 12 : 20,
-        vertical: 16,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 20),
       itemCount: messages.length,
       itemBuilder: (context, i) {
         final m = messages[i];
 
         if (i == _editingIndex) {
-          return Align(
-            alignment: Alignment.centerRight,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 14),
+          return Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 800),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              alignment: Alignment.centerRight,
               child: MessageEditBox(
                 controller: _editController!,
                 onCancel: _cancelEdit,
@@ -364,145 +361,157 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
           );
         }
 
-        final model = m.modelName == null
-            ? null
-            : modelStore.models.where((e) => e.name == m.modelName).cast<LlmModel?>().firstOrNull;
+        final cleanedText = m.isUser ? m.text : cleanAiResponse(m.text);
 
-        return Align(
-          alignment: m.isUser ? Alignment.centerRight : Alignment.centerLeft,
-          child: Column(
-            crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              Container(
-                constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: m.isUser
-                      ? (isDark ? claudeUserDark : claudeUserLight)
-                      : context.surface2,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: m.isUser
-                        ? (isDark ? claudeBorderDark : claudeBorderLight)
-                        : context.borderColor,
-                    width: 1.1,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+        return Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 800),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!m.isUser) ...[
+                  Container(
+                    width: 30,
+                    height: 30,
+                    margin: const EdgeInsets.only(top: 2, right: 12),
+                    decoration: const BoxDecoration(
+                      color: AppColors.openaiGreen,
+                      shape: BoxShape.circle,
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (m.isUser && m.attachments.isNotEmpty) ...[
-                      ChatAttachmentsView(attachments: m.attachments, isUser: true),
-                      const SizedBox(height: 6),
-                    ],
-                    if (!m.isUser) ...[
-                      Row(
-                        children: [
-                          if (model != null) ...[
-                            CircleAvatar(
-                              radius: 10,
-                              backgroundColor: model.color,
-                              child: Text(model.badgeLetter,
-                                  style: const TextStyle(fontSize: 10, color: Colors.white)),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Text(m.modelName ?? 'AI Model',
+                    child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
+                  ),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      if (!m.isUser) ...[
+                        Row(
+                          children: [
+                            Text(
+                              m.modelName ?? 'Smart Routing',
                               style: TextStyle(
-                                  color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 12.5)),
-                          if (m.category != null && m.category!.isNotEmpty) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.purple.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                m.category!,
-                                style: const TextStyle(color: AppColors.purple, fontSize: 10, fontWeight: FontWeight.w600),
+                                color: context.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                               ),
                             ),
-                          ],
-                          if (m.routingMethod != null && m.routingMethod!.isNotEmpty) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.geminiBlue.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
+                            if (m.category != null && m.category!.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.openaiGreen.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  m.category!,
+                                  style: const TextStyle(
+                                    color: AppColors.openaiGreen,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
-                              child: Text(
-                                m.routingMethod == 'llm_router' ? 'LLM Router' : m.routingMethod!,
-                                style: const TextStyle(color: AppColors.geminiBlue, fontSize: 10, fontWeight: FontWeight.w600),
+                            ],
+                            if (m.routingMethod != null && m.routingMethod!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.geminiBlue.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  m.routingMethod == 'llm_router' ? 'LLM Router' : m.routingMethod!,
+                                  style: const TextStyle(
+                                    color: AppColors.geminiBlue,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      m.isUser
+                          ? Container(
+                              constraints: const BoxConstraints(maxWidth: 600),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF2F2F2F) : const Color(0xFFF4F4F4),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF383838) : const Color(0xFFE5E5E5),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (m.attachments.isNotEmpty) ...[
+                                    ChatAttachmentsView(attachments: m.attachments, isUser: true),
+                                    const SizedBox(height: 6),
+                                  ],
+                                  SelectionArea(
+                                    child: Text(
+                                      m.text,
+                                      style: TextStyle(
+                                        color: context.textPrimary,
+                                        fontSize: 14.5,
+                                        height: 1.45,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : SelectionArea(
+                              child: MarkdownBody(
+                                data: cleanedText,
+                                shrinkWrap: true,
+                                builders: {
+                                  'latex': LatexElementBuilder(
+                                    textStyle: TextStyle(color: context.textPrimary, fontSize: 14.5),
+                                  ),
+                                },
+                                extensionSet: md.ExtensionSet(
+                                  [LatexBlockSyntax()],
+                                  [LatexInlineSyntax()],
+                                ),
+                                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                  p: TextStyle(color: context.textPrimary, fontSize: 14.5, height: 1.55),
+                                  h1: TextStyle(color: context.textPrimary, fontSize: 19, fontWeight: FontWeight.bold),
+                                  h2: TextStyle(color: context.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
+                                  h3: TextStyle(color: context.textPrimary, fontSize: 15.5, fontWeight: FontWeight.bold),
+                                  strong: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
+                                  em: TextStyle(color: context.textPrimary, fontStyle: FontStyle.italic),
+                                  code: TextStyle(
+                                    color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1A202C),
+                                    backgroundColor: isDark ? const Color(0xFF2D3748) : const Color(0xFFEDF2F7),
+                                    fontSize: 13,
+                                    fontFamily: 'monospace',
+                                  ),
+                                  codeblockDecoration: BoxDecoration(
+                                    color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF7F7F8),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: context.borderColor),
+                                  ),
+                                  listBullet: TextStyle(color: context.textPrimary, fontSize: 14.5),
+                                ),
                               ),
                             ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
+                      m.isUser
+                          ? UserMessageActions(onEdit: () => _startEdit(i), onCopy: () => _copy(m.text))
+                          : AssistantMessageActions(onCopy: () => _copy(cleanedText), onRegenerate: () => _regenerateAt(i)),
                     ],
-                    m.isUser
-                        ? SelectionArea(
-                            child: Text(
-                              m.text,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                height: 1.45,
-                              ),
-                            ),
-                          )
-                        : SelectionArea(
-                            child: MarkdownBody(
-                              data: m.text,
-                              shrinkWrap: true,
-                              builders: {
-                                'latex': LatexElementBuilder(
-                                  textStyle: TextStyle(color: context.textPrimary, fontSize: 14),
-                                ),
-                              },
-                              extensionSet: md.ExtensionSet(
-                                [LatexBlockSyntax()],
-                                [LatexInlineSyntax()],
-                              ),
-                              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                                p: TextStyle(color: context.textPrimary, fontSize: 14, height: 1.45),
-                                h1: TextStyle(color: context.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
-                                h2: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
-                                h3: TextStyle(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
-                                strong: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
-                                em: TextStyle(color: context.textPrimary, fontStyle: FontStyle.italic),
-                                code: TextStyle(
-                                  color: AppColors.purple,
-                                  backgroundColor: context.surface.withValues(alpha: 0.5),
-                                  fontSize: 12.5,
-                                  fontFamily: 'monospace',
-                                ),
-                                codeblockDecoration: BoxDecoration(
-                                  color: context.surface,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: context.borderColor),
-                                ),
-                                listBullet: TextStyle(color: context.textPrimary, fontSize: 14),
-                              ),
-                            ),
-                          ),
-                  ],
+                  ),
                 ),
-              ),
-              m.isUser
-                  ? UserMessageActions(onEdit: () => _startEdit(i), onCopy: () => _copy(m.text))
-                  : AssistantMessageActions(onCopy: () => _copy(m.text), onRegenerate: () => _regenerateAt(i)),
-              const SizedBox(height: 8),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -510,22 +519,24 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   }
 
   Widget _buildThinkingBar(BuildContext context) {
-    const claudeAccent = Color(0xFFDA7756);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: claudeAccent),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'Analyzing prompt & routing to Claude AI model...',
-            style: TextStyle(color: context.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w500),
-          ),
-        ],
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 800),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.openaiGreen),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Thinking...',
+              style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -538,20 +549,33 @@ class _SuggestionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDark;
     return Material(
-      color: context.surface2,
-      borderRadius: BorderRadius.circular(12),
+      color: isDark ? const Color(0xFF212121) : Colors.white,
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
+        hoverColor: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: context.borderColor),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? const Color(0xFF383838) : const Color(0xFFE5E5E5),
+              width: 1.1,
+            ),
           ),
           alignment: Alignment.centerLeft,
-          child: Text(text, style: TextStyle(color: context.textSecondary, fontSize: 12.5, height: 1.3)),
+          child: Text(
+            text,
+            style: TextStyle(
+              color: context.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              height: 1.3,
+            ),
+          ),
         ),
       ),
     );

@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const purple = Color(0xFF6C5CE7);
-  static const purpleDark = Color(0xFF5A4BD6);
-  static const purpleGradientEnd = Color(0xFF8B7CF6);
+  static const purple = Color(0xFF10A37F); // ChatGPT OpenAI Green primary
+  static const purpleDark = Color(0xFF0E8E6E);
+  static const purpleGradientEnd = Color(0xFF10A37F);
 
-  static const darkBg = Color(0xFF0B0B14);
-  static const darkSurface = Color(0xFF13131F);
-  static const darkSurface2 = Color(0xFF191926);
-  static const darkBorder = Color(0xFF262636);
-  static const darkTextPrimary = Color(0xFFF2F2F7);
-  static const darkTextSecondary = Color(0xFF9494A8);
+  static const darkBg = Color(0xFF212121);
+  static const darkSurface = Color(0xFF171717);
+  static const darkSurface2 = Color(0xFF2F2F2F);
+  static const darkBorder = Color(0xFF383838);
+  static const darkTextPrimary = Color(0xFFECECF1);
+  static const darkTextSecondary = Color(0xFFB4B4B4);
 
-  static const lightBg = Color(0xFFF5F5FA);
-  static const lightSurface = Color(0xFFFFFFFF);
-  static const lightSurface2 = Color(0xFFF0F0F7);
-  static const lightBorder = Color(0xFFE1E1EC);
-  static const lightTextPrimary = Color(0xFF17171F);
-  static const lightTextSecondary = Color(0xFF6B6B7B);
+  static const lightBg = Color(0xFFFFFFFF);
+  static const lightSurface = Color(0xFFF9F9F9);
+  static const lightSurface2 = Color(0xFFF4F4F4);
+  static const lightBorder = Color(0xFFE5E5E5);
+  static const lightTextPrimary = Color(0xFF0D0D0D);
+  static const lightTextSecondary = Color(0xFF666666);
 
-  static const success = Color(0xFF2ECC71);
+  static const success = Color(0xFF10A37F);
   static const openaiGreen = Color(0xFF10A37F);
   static const geminiBlue = Color(0xFF4285F4);
   static const anthropicOrange = Color(0xFFE8724A);
@@ -73,3 +73,4 @@ extension AppColorsX on BuildContext {
   Color get textSecondary => isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
   Color get bg => isDark ? AppColors.darkBg : AppColors.lightBg;
 }
+
