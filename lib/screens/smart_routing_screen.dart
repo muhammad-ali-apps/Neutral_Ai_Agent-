@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
-import 'package:markdown/markdown.dart' as md;
+import 'package:gpt_markdown/gpt_markdown.dart';
 import '../app_theme.dart';
 import '../models.dart';
 import '../services/api_services.dart';
@@ -468,39 +466,12 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                                 ],
                               ),
                             )
-                          : SelectionArea(
-                              child: MarkdownBody(
-                                data: cleanedText,
-                                shrinkWrap: true,
-                                builders: {
-                                  'latex': LatexElementBuilder(
-                                    textStyle: TextStyle(color: context.textPrimary, fontSize: 14.5),
-                                  ),
-                                },
-                                extensionSet: md.ExtensionSet(
-                                  [LatexBlockSyntax()],
-                                  [LatexInlineSyntax()],
-                                ),
-                                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                                  p: TextStyle(color: context.textPrimary, fontSize: 14.5, height: 1.55),
-                                  h1: TextStyle(color: context.textPrimary, fontSize: 19, fontWeight: FontWeight.bold),
-                                  h2: TextStyle(color: context.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
-                                  h3: TextStyle(color: context.textPrimary, fontSize: 15.5, fontWeight: FontWeight.bold),
-                                  strong: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
-                                  em: TextStyle(color: context.textPrimary, fontStyle: FontStyle.italic),
-                                  code: TextStyle(
-                                    color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1A202C),
-                                    backgroundColor: isDark ? const Color(0xFF2D3748) : const Color(0xFFEDF2F7),
-                                    fontSize: 13,
-                                    fontFamily: 'monospace',
-                                  ),
-                                  codeblockDecoration: BoxDecoration(
-                                    color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF7F7F8),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: context.borderColor),
-                                  ),
-                                  listBullet: TextStyle(color: context.textPrimary, fontSize: 14.5),
-                                ),
+                          : GptMarkdown(
+                              cleanedText,
+                              style: TextStyle(
+                                color: context.textPrimary,
+                                fontSize: 14.5,
+                                height: 1.55,
                               ),
                             ),
                       const SizedBox(height: 6),

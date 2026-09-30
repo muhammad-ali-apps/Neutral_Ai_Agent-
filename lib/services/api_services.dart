@@ -3,73 +3,140 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Cleans raw AI response text to eliminate unwanted brackets, Python tuple syntax, 
-/// stringified lists, quotes, and escaped characters.
+/// stringified JSON/dicts, leading/trailing JSON noise (like `,{`), quotes, escaped characters,
+/// and prevents unwanted markdown transformations inside code blocks.
 String cleanAiResponse(dynamic rawReply) {
   if (rawReply == null) return '';
-  String text = '';
 
   if (rawReply is List) {
-    text = rawReply.map((e) => cleanAiResponse(e)).where((e) => e.isNotEmpty).join('\n\n');
-  } else if (rawReply is Map) {
+    return rawReply.map((e) => cleanAiResponse(e)).where((e) => e.isNotEmpty).join('\n\n');
+  }
+
+  if (rawReply is Map) {
     if (rawReply.containsKey('reply')) {
-      text = cleanAiResponse(rawReply['reply']);
+      return cleanAiResponse(rawReply['reply']);
     } else if (rawReply.containsKey('text')) {
-      text = cleanAiResponse(rawReply['text']);
+      return cleanAiResponse(rawReply['text']);
     } else if (rawReply.containsKey('content')) {
-      text = cleanAiResponse(rawReply['content']);
+      return cleanAiResponse(rawReply['content']);
     } else if (rawReply.containsKey('message')) {
-      text = cleanAiResponse(rawReply['message']);
+      return cleanAiResponse(rawReply['message']);
+    } else if (rawReply.containsKey('response')) {
+      return cleanAiResponse(rawReply['response']);
     } else {
-      text = rawReply.values.map((e) => cleanAiResponse(e)).join('\n\n');
-    }
-  } else {
-    text = rawReply.toString().trim();
-  }
-
-  // Handle Python tuple/list string representations e.g. `("response text",)` or `('response text', 200)`
-  final tupleWithComma = RegExp(r'^\s*[\(\[]\s*["' "'" + r']([\s\S]*?)["' + "'" + r']\s*,\s*[\s\S]*[\)\]]\s*$');
-  if (tupleWithComma.hasMatch(text)) {
-    final match = tupleWithComma.firstMatch(text);
-    if (match != null && match.group(1) != null) {
-      text = match.group(1)!;
+      return rawReply.values.map((e) => cleanAiResponse(e)).where((e) => e.isNotEmpty).join('\n\n');
     }
   }
 
-  // Handle `("response text")` or `['response text']`
-  final tupleSimple = RegExp(r'^\s*[\(\[]\s*["' "'" + r']([\s\S]*?)["' + "'" + r']\s*[\)\]]\s*$');
-  if (tupleSimple.hasMatch(text)) {
-    final match = tupleSimple.firstMatch(text);
-    if (match != null && match.group(1) != null) {
-      text = match.group(1)!;
+  String text = rawReply.toString().trim();
+  if (text.isEmpty) return '';
+
+  // 1. Clean leading/trailing JSON/tuple noise like `,{`, `},`, `,{ "reply": ... }`
+  text = text.replaceAll(RegExp(r'^\s*[\,\:\`\*\+]*[\,\{\}]+\s*'), '').trim();
+
+  // 2. If text looks like stringified JSON or Python dict/tuple e.g. `{"reply": ...}` or `({'reply': ...}, 200)`
+  if ((text.startsWith('{') && text.endsWith('}')) ||
+      (text.startsWith('[') && text.endsWith(']')) ||
+      (text.startsWith('(') && text.endsWith(')')) ||
+      text.startsWith('{"') || text.startsWith("{'") || text.startsWith('({')) {
+    
+    // Try native JSON decode
+    try {
+      final decoded = json.decode(text);
+      if (decoded != null && (decoded is Map || decoded is List)) {
+        return cleanAiResponse(decoded);
+      }
+    } catch (_) {}
+
+    // Try extracting Python tuple e.g. `("response text",)` or `('response text', 200)`
+    final tupleMatch = RegExp(r'''^\s*[\(\[]\s*["']([\s\S]*?)["']\s*,\s*[\s\S]*[\)\]]\s*$''').firstMatch(text);
+    if (tupleMatch != null && tupleMatch.group(1) != null) {
+      return cleanAiResponse(tupleMatch.group(1));
+    }
+
+    final tupleSimpleMatch = RegExp(r'''^\s*[\(\[]\s*["']([\s\S]*?)["']\s*[\)\]]\s*$''').firstMatch(text);
+    if (tupleSimpleMatch != null && tupleSimpleMatch.group(1) != null) {
+      return cleanAiResponse(tupleSimpleMatch.group(1));
+    }
+
+    // Try extracting JSON key "reply": "..." or "content": "..." via Regex if JSON parsing failed
+    final jsonKeyMatch = RegExp(r'''["'](?:reply|text|content|message|response)["']\s*:\s*["']([\s\S]*?)["']\s*[\}\]]?\s*$''').firstMatch(text);
+    if (jsonKeyMatch != null && jsonKeyMatch.group(1) != null) {
+      return cleanAiResponse(jsonKeyMatch.group(1));
     }
   }
 
-  text = text.trim();
-  if ((text.startsWith('(') && text.endsWith(')')) || (text.startsWith('[') && text.endsWith(']'))) {
+  // 3. Strip outer enclosing quotes or brackets if still wrapped
+  if ((text.startsWith('(') && text.endsWith(')')) ||
+      (text.startsWith('[') && text.endsWith(']')) ||
+      (text.startsWith('{') && text.endsWith('}'))) {
     text = text.substring(1, text.length - 1).trim();
   }
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+  if ((text.startsWith('"') && text.endsWith('"')) ||
+      (text.startsWith("'") && text.endsWith("'"))) {
     text = text.substring(1, text.length - 1).trim();
   }
 
-  // Unescape standard escaped characters
-  text = text
-      .replaceAll('\\n', '\n')
-      .replaceAll('\\t', '\t')
-      .replaceAll('\\"', '"')
-      .replaceAll("\\'", "'");
+  // Strip residual leading `,{` or `,{` or `,` or `}` if left after unwrapping
+  text = text.replaceAll(RegExp(r'^\s*[\,\{\}]+\s*'), '').replaceAll(RegExp(r'\s*[\,\{\}]+\s*$'), '').trim();
 
-  if (text.startsWith('("') || text.startsWith("('")) {
-    text = text.substring(2).trim();
+  // 4. Unescape common escape sequences if double-escaped e.g. `\n` -> `\n`
+  if (text.contains(r'\n') || text.contains(r'\"') || text.contains(r"\'") || text.contains(r'\t')) {
+    text = text
+        .replaceAll(r'\n', '\n')
+        .replaceAll(r'\r', '\r')
+        .replaceAll(r'\t', '\t')
+        .replaceAll(r'\"', '"')
+        .replaceAll(r"\'", "'");
   }
-  if (text.endsWith('",)') || text.endsWith("',)") || text.endsWith('",') || text.endsWith("',")) {
-    text = text.substring(0, text.length - 2).trim();
-  }
-  if (text.endsWith(',') || (text.endsWith(')') && !text.contains('('))) {
-    text = text.substring(0, text.length - 1).trim();
-  }
+
+  // Normalize hyphens
+  text = text.replaceAll('\u2011', '-').replaceAll('\u00AD', '-');
+
+  // Normalize Sphinx / RST double backticks ``code`` -> `code`
+  text = text.replaceAllMapped(RegExp(r'``([^`\n]+)``'), (m) => '`${m[1]}`');
+
+  // 5. Convert NumPy / RST docstring section headers ONLY outside code blocks
+  text = _convertDocstringHeadersOutsideCodeBlocks(text);
 
   return text.trim();
+}
+
+/// Converts docstring section headers (e.g. Parameters\n----------) to ### Parameters,
+/// but preserves code inside fenced code blocks (```...```) untouched.
+String _convertDocstringHeadersOutsideCodeBlocks(String text) {
+  final codeBlockRegex = RegExp(r'```[\s\S]*?```');
+  final matches = codeBlockRegex.allMatches(text);
+
+  if (matches.isEmpty) {
+    return _applySectionHeaderRegex(text);
+  }
+
+  final buffer = StringBuffer();
+  int lastIndex = 0;
+
+  for (final match in matches) {
+    if (match.start > lastIndex) {
+      final nonCode = text.substring(lastIndex, match.start);
+      buffer.write(_applySectionHeaderRegex(nonCode));
+    }
+    // Code block is kept unchanged
+    buffer.write(text.substring(match.start, match.end));
+    lastIndex = match.end;
+  }
+
+  if (lastIndex < text.length) {
+    buffer.write(_applySectionHeaderRegex(text.substring(lastIndex)));
+  }
+
+  return buffer.toString();
+}
+
+String _applySectionHeaderRegex(String segment) {
+  return segment.replaceAllMapped(
+    RegExp(r'(\n|^)([A-Za-z0-9 _\-\(\)\.\,\:\`\*\+]+)\n\s*([-\=]{3,})\s*(\n|$)'),
+    (m) => '${m[1]}### ${m[2]}\n${m[4]}',
+  );
 }
 
 class ApiService{
