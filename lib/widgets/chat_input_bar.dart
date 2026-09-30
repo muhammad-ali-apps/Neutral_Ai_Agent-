@@ -97,14 +97,16 @@ class _ChatInputBarState extends State<ChatInputBar> {
     final text = widget.controller.text.trim();
     if (text.isEmpty && _attachments.isEmpty) return;
 
-    final attachmentsToSend = _attachments.map((a) => ChatAttachment(
-      name: a.name,
-      path: a.path,
-      bytes: a.bytes,
-      isImage: a.isImage,
-      fileType: a.fileType,
-      sizeInBytes: a.sizeInBytes,
-    )).toList();
+    final attachmentsToSend = _attachments
+        .map((a) => ChatAttachment(
+              name: a.name,
+              path: a.path,
+              bytes: a.bytes,
+              isImage: a.isImage,
+              fileType: a.fileType,
+              sizeInBytes: a.sizeInBytes,
+            ))
+        .toList();
 
     final promptText = text.isEmpty && _attachments.isNotEmpty
         ? (_attachments.any((a) => a.fileType == 'project')
@@ -120,18 +122,19 @@ class _ChatInputBarState extends State<ChatInputBar> {
   Future<void> _pickCamera() async {
     setState(() => _busy = true);
     try {
-      final XFile? file = await ImagePicker().pickImage(source: ImageSource.camera);
+      final XFile? file =
+          await ImagePicker().pickImage(source: ImageSource.camera);
       if (file != null) {
         final bytes = await file.readAsBytes();
         setState(() => _attachments.add(PickedAttachment(
-          name: file.name,
-          icon: Icons.photo_camera_outlined,
-          path: file.path,
-          bytes: bytes,
-          isImage: true,
-          fileType: 'camera',
-          sizeInBytes: bytes.length,
-        )));
+              name: file.name,
+              icon: Icons.photo_camera_outlined,
+              path: file.path,
+              bytes: bytes,
+              isImage: true,
+              fileType: 'camera',
+              sizeInBytes: bytes.length,
+            )));
       }
     } catch (e) {
       _showError('Could not open camera: $e');
@@ -144,18 +147,19 @@ class _ChatInputBarState extends State<ChatInputBar> {
   Future<void> _pickScreenshot() async {
     setState(() => _busy = true);
     try {
-      final XFile? file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      final XFile? file =
+          await ImagePicker().pickImage(source: ImageSource.gallery);
       if (file != null) {
         final bytes = await file.readAsBytes();
         setState(() => _attachments.add(PickedAttachment(
-          name: file.name,
-          icon: Icons.screenshot_monitor_outlined,
-          path: file.path,
-          bytes: bytes,
-          isImage: true,
-          fileType: 'screenshot',
-          sizeInBytes: bytes.length,
-        )));
+              name: file.name,
+              icon: Icons.screenshot_monitor_outlined,
+              path: file.path,
+              bytes: bytes,
+              isImage: true,
+              fileType: 'screenshot',
+              sizeInBytes: bytes.length,
+            )));
       }
     } catch (e) {
       _showError('Could not open gallery: $e');
@@ -172,14 +176,14 @@ class _ChatInputBarState extends State<ChatInputBar> {
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
         setState(() => _attachments.add(PickedAttachment(
-          name: file.name,
-          icon: Icons.folder_outlined,
-          path: file.path,
-          bytes: file.bytes,
-          isImage: false,
-          fileType: 'project',
-          sizeInBytes: file.size,
-        )));
+              name: file.name,
+              icon: Icons.folder_outlined,
+              path: file.path,
+              bytes: file.bytes,
+              isImage: false,
+              fileType: 'project',
+              sizeInBytes: file.size,
+            )));
       }
     } catch (e) {
       _showError('Could not open file picker: $e');
@@ -207,22 +211,29 @@ class _ChatInputBarState extends State<ChatInputBar> {
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: _attachments.map((a) => _buildAttachmentPreview(a)).toList(),
+                  children: _attachments
+                      .map((a) => _buildAttachmentPreview(a))
+                      .toList(),
                 ),
               ),
               const SizedBox(height: 8),
             ],
             Container(
               decoration: BoxDecoration(
-                color: context.isDark ? const Color(0xFF2F2F2F) : const Color(0xFFF4F4F4),
+                color: context.isDark
+                    ? const Color(0xFF2F2F2F)
+                    : const Color(0xFFF4F4F4),
                 borderRadius: BorderRadius.circular(26),
                 border: Border.all(
-                  color: context.isDark ? const Color(0xFF383838) : const Color(0xFFE5E5E5),
+                  color: context.isDark
+                      ? const Color(0xFF383838)
+                      : const Color(0xFFE5E5E5),
                   width: 1.2,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.04),
+                    color: Colors.black
+                        .withValues(alpha: context.isDark ? 0.2 : 0.04),
                     blurRadius: 10,
                     offset: const Offset(0, 3),
                   ),
@@ -281,7 +292,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                             width: 34,
                             height: 34,
                             decoration: BoxDecoration(
-                              color: context.isDark ? Colors.white10 : Colors.black12,
+                              color: context.isDark
+                                  ? Colors.white10
+                                  : Colors.black12,
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
@@ -297,8 +310,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
                       constraints: const BoxConstraints(maxHeight: 140),
                       child: Focus(
                         onKeyEvent: (node, event) {
-                          final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
-                              event.logicalKey == LogicalKeyboardKey.numpadEnter;
+                          final isEnter =
+                              event.logicalKey == LogicalKeyboardKey.enter ||
+                                  event.logicalKey ==
+                                      LogicalKeyboardKey.numpadEnter;
                           if (event is KeyDownEvent && isEnter) {
                             if (HardwareKeyboard.instance.isShiftPressed) {
                               return KeyEventResult.ignored;
@@ -321,7 +336,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                           decoration: InputDecoration(
                             border: InputBorder.none,
                             isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 8),
                             hintText: _effectiveHint,
                             hintStyle: TextStyle(
                               color: context.textSecondary,
@@ -336,7 +352,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: widget.controller,
                     builder: (context, value, _) {
-                      final canSend = value.text.trim().isNotEmpty || _attachments.isNotEmpty;
+                      final canSend = value.text.trim().isNotEmpty ||
+                          _attachments.isNotEmpty;
                       return AnimatedContainer(
                         duration: const Duration(milliseconds: 120),
                         width: 32,
@@ -344,7 +361,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                         decoration: BoxDecoration(
                           color: canSend
                               ? (context.isDark ? Colors.white : Colors.black)
-                              : (context.isDark ? Colors.white24 : Colors.black12),
+                              : (context.isDark
+                                  ? Colors.white24
+                                  : Colors.black12),
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
@@ -366,7 +385,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
             ),
             const SizedBox(height: 6),
             Text(
-              'ChatGPT can make mistakes. Check important info.',
+              'Neutral AI can make mistakes. Check important information',
               style: TextStyle(
                 color: context.textSecondary.withValues(alpha: 0.7),
                 fontSize: 11,
@@ -418,7 +437,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     ? Image.memory(a.bytes!, fit: BoxFit.cover)
                     : (a.path != null && !kIsWeb
                         ? Image.file(File(a.path!), fit: BoxFit.cover)
-                        : const Icon(Icons.image, color: claudeAccent, size: 20)),
+                        : const Icon(Icons.image,
+                            color: claudeAccent, size: 20)),
               ),
             )
           else
@@ -437,7 +457,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    isProject ? Icons.terminal_rounded : Icons.description_rounded,
+                    isProject
+                        ? Icons.terminal_rounded
+                        : Icons.description_rounded,
                     color: Colors.white,
                     size: 16,
                   ),
@@ -490,7 +512,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 color: isDark ? Colors.white12 : Colors.black12,
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.close_rounded, size: 13, color: context.textSecondary),
+              child: Icon(Icons.close_rounded,
+                  size: 13, color: context.textSecondary),
             ),
           ),
         ],
@@ -525,7 +548,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
             children: [
               Text(
                 label,
-                style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                    color: context.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600),
               ),
               Text(
                 subtitle,
