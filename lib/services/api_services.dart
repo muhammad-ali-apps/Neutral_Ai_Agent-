@@ -363,18 +363,69 @@ class ApiService{
         }
     }
 
+    // ─── Comparison Models Preference API ───
+
+    /// GET /api/user/comparison-models — fetch user saved comparison models and active available models.
+    static Future<Map<String, dynamic>?> fetchComparisonModels() async {
+        try {
+            final headers = await _authHeaders();
+            final response = await http.get(
+                Uri.parse('$baseUrl/user/comparison-models'),
+                headers: headers,
+            );
+            if (response.statusCode == 200) {
+                return json.decode(response.body) as Map<String, dynamic>;
+            } else {
+                print('Fetch comparison models failed: ${response.statusCode}');
+                print('Error Body: ${response.body}');
+                return null;
+            }
+        } catch (e) {
+            print('Error fetching comparison models: $e');
+            return null;
+        }
+    }
+
+    /// POST /api/user/comparison-models — update user preferred comparison models.
+    static Future<bool> updateComparisonModels(List<String> modelIds) async {
+        try {
+            final headers = await _authHeaders();
+            final response = await http.post(
+                Uri.parse('$baseUrl/user/comparison-models'),
+                headers: headers,
+                body: json.encode({'model_ids': modelIds}),
+            );
+            if (response.statusCode == 200) {
+                print('Updated user comparison models: ${response.body}');
+                return true;
+            } else {
+                print('Update comparison models failed: ${response.statusCode}');
+                print('Error Body: ${response.body}');
+                return false;
+            }
+        } catch (e) {
+            print('Error updating comparison models: $e');
+            return false;
+        }
+    }
+
     // ─── Chat API ───
 
-    /// POST /api/chat/send — send prompt in smart routing mode.
+    /// POST /api/chat/send — send prompt in smart routing or comparison mode.
     static Future<Map<String, dynamic>?> sendChatMessage({
         required String prompt,
         String? sessionId,
+        String mode = 'smart',
+        List<String>? selectedModels,
     }) async {
         try {
             final headers = await _authHeaders();
             final bodyMap = <String, dynamic>{
                 'prompt': prompt,
+                'mode': mode,
                 if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+                if (mode == 'compare' && selectedModels != null && selectedModels.isNotEmpty)
+                    'selected_models': selectedModels,
             };
             final response = await http.post(
                 Uri.parse('$baseUrl/chat/send'),

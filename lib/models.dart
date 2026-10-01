@@ -368,6 +368,9 @@ class ChatMessage {
   String? category;
   String? routingMethod;
   List<ChatAttachment> attachments;
+  double? latencyMs;
+  Map<String, dynamic>? tokenUsage;
+  String? status;
 
   ChatMessage({
     required this.isUser,
@@ -376,6 +379,9 @@ class ChatMessage {
     this.category,
     this.routingMethod,
     this.attachments = const [],
+    this.latencyMs,
+    this.tokenUsage,
+    this.status,
   });
 }
 

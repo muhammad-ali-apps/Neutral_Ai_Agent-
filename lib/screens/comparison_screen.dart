@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../models.dart';
-import '../services/dummy_response_generator.dart';
+import '../services/api_services.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
@@ -11,7 +11,7 @@ import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
 import '../widgets/formatted_message_view.dart';
 
-/// Comparison screen — side-by-side responses from selected models.
+/// Comparison screen — live side-by-side model comparison backed by dynamic APIs.
 class ComparisonScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
   final ValueChanged<String?>? onSessionChanged;
@@ -26,6 +26,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   final _controller = TextEditingController();
   final Set<String> _selected = <String>{};
   ChatSession? _session;
+  bool _thinking = false;
 
   int? _editingIndex;
   TextEditingController? _editController;
@@ -33,6 +34,28 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUserPreferencesAndModels();
+  }
+
+  Future<void> _loadUserPreferencesAndModels() async {
+    if (modelStore.models.isEmpty) {
+      await modelStore.loadFromApi();
+    }
+
+    final res = await ApiService.fetchComparisonModels();
+    if (!mounted) return;
+
+    if (res != null && res['saved_model_ids'] is List) {
+      final savedIds = List<String>.from(res['saved_model_ids']);
+      if (savedIds.isNotEmpty) {
+        setState(() {
+          _selected.clear();
+          _selected.addAll(savedIds);
+        });
+        return;
+      }
+    }
+
     _initDefaultSelection();
   }
 
@@ -40,19 +63,28 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     final pool = modelStore.models;
     final active = pool.where((m) => m.active).toList();
     final toSelect = active.isNotEmpty ? active : pool;
-    for (final m in toSelect.take(2)) {
-      _selected.add(m.id);
-    }
+    setState(() {
+      _selected.clear();
+      for (final m in toSelect.take(2)) {
+        _selected.add(m.id);
+      }
+    });
   }
 
   List<LlmModel> get _selectedModels {
     final pool = modelStore.models;
     final selected = pool.where((m) => _selected.contains(m.id)).toList();
     if (selected.isNotEmpty) return selected;
-    // Fallback if none selected
     final active = pool.where((m) => m.active).toList();
     final fallback = active.isNotEmpty ? active : pool;
     return fallback.take(2).toList();
+  }
+
+  void _persistModelSelection() async {
+    final selectedIds = _selected.toList();
+    if (selectedIds.isNotEmpty) {
+      await ApiService.updateComparisonModels(selectedIds);
+    }
   }
 
   void _notifySession() => widget.onSessionChanged?.call(_session?.id);
@@ -62,6 +94,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _session = null;
       _editingIndex = null;
       _editController = null;
+      _thinking = false;
     });
     _notifySession();
   }
@@ -72,43 +105,99 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _session = s;
       _editingIndex = null;
       _editController = null;
+      _thinking = false;
     });
     _notifySession();
   }
 
-  void _send(String text, List<ChatAttachment> attachments) {
+  void _send(String text, List<ChatAttachment> attachments) async {
     if (text.trim().isEmpty && attachments.isEmpty) return;
     final modelsToUse = _selectedModels;
     if (modelsToUse.isEmpty) return;
 
+    final selectedIds = modelsToUse.map((m) => m.id).toList();
+
     setState(() {
       _session ??= ChatSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: text.length > 42 ? '${text.substring(0, 42)}...' : (text.isNotEmpty ? text : (attachments.isNotEmpty ? attachments.first.name : 'Comparison Chat')),
+        title: text.length > 42
+            ? '${text.substring(0, 42)}...'
+            : (text.isNotEmpty ? text : (attachments.isNotEmpty ? attachments.first.name : 'Comparison Chat')),
         mode: ChatMode.comparison,
       );
       final isNew = !historyStore.sessions.contains(_session);
       _session!.messages.add(ChatMessage(isUser: true, text: text, attachments: attachments));
-      for (final model in modelsToUse) {
-        final aiText = DummyResponseGenerator.generate(
-          prompt: text,
-          attachments: attachments,
-          modelName: model.name,
-          modeName: 'Comparison',
-        );
-        _session!.messages.add(ChatMessage(
-          isUser: false,
-          modelName: model.name,
-          text: aiText,
-        ));
-      }
       if (isNew) {
         historyStore.addSession(_session!);
       } else {
         historyStore.touch(_session!);
       }
+      _thinking = true;
     });
     _notifySession();
+
+    final response = await ApiService.sendChatMessage(
+      prompt: text,
+      sessionId: _session?.backendSessionId,
+      mode: 'compare',
+      selectedModels: selectedIds,
+    );
+
+    if (!mounted || _session == null) return;
+
+    if (response != null) {
+      final returnedSessionId = response['session_id']?.toString();
+      if (returnedSessionId != null && returnedSessionId.isNotEmpty) {
+        _session!.backendSessionId = returnedSessionId;
+      }
+
+      final responsesList = response['responses'] as List<dynamic>? ?? [];
+
+      setState(() {
+        _thinking = false;
+        if (responsesList.isNotEmpty) {
+          for (final item in responsesList) {
+            final modelName = item['model_name']?.toString() ?? 'AI Model';
+            final status = item['status']?.toString() ?? 'success';
+            final reply = (status == 'success' && item['reply'] != null)
+                ? item['reply'].toString()
+                : (item['error']?.toString() ?? 'Model returned empty response');
+            final latency = item['latency_ms'] != null
+                ? double.tryParse(item['latency_ms'].toString())
+                : null;
+            final tokenUsage = item['token_usage'] is Map
+                ? Map<String, dynamic>.from(item['token_usage'])
+                : null;
+
+            _session!.messages.add(ChatMessage(
+              isUser: false,
+              modelName: modelName,
+              text: reply,
+              latencyMs: latency,
+              tokenUsage: tokenUsage,
+              status: status,
+            ));
+          }
+        } else {
+          _session!.messages.add(ChatMessage(
+            isUser: false,
+            text: 'No model responses returned from backend.',
+            status: 'error',
+          ));
+        }
+        historyStore.touch(_session!);
+      });
+    } else {
+      setState(() {
+        _thinking = false;
+        _session!.messages.add(ChatMessage(
+          isUser: false,
+          text: 'Failed to connect to AI comparison server. Please check backend connection.',
+          status: 'error',
+        ));
+        historyStore.touch(_session!);
+      });
+    }
   }
 
   void _startEdit(int index) {
@@ -125,15 +214,15 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     });
   }
 
-  void _confirmEdit(int index) {
+  void _confirmEdit(int index) async {
     final newText = _editController!.text.trim();
     if (newText.isEmpty) return;
-    final currentAttachments = _session!.messages[index].attachments;
     final modelsToUse = _selectedModels;
+    final selectedIds = modelsToUse.map((m) => m.id).toList();
 
     setState(() {
       _session!.messages[index].text = newText;
-      // Remove the old response group
+      // Remove old AI response group
       int end = index + 1;
       while (end < _session!.messages.length && !_session!.messages[end].isUser) {
         end++;
@@ -141,57 +230,135 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       if (end > index + 1) {
         _session!.messages.removeRange(index + 1, end);
       }
-      // Regenerate a fresh group using the currently selected models
-      for (final model in modelsToUse) {
-        final aiText = DummyResponseGenerator.generate(
-          prompt: newText,
-          attachments: currentAttachments,
-          modelName: model.name,
-          modeName: 'Comparison',
-        );
-        _session!.messages.insert(
-          index + 1 + modelsToUse.indexOf(model),
-          ChatMessage(
-            isUser: false,
-            modelName: model.name,
-            text: aiText,
-          ),
-        );
-      }
       _editingIndex = null;
       _editController = null;
+      _thinking = true;
     });
     historyStore.touch(_session!);
+
+    final response = await ApiService.sendChatMessage(
+      prompt: newText,
+      sessionId: _session?.backendSessionId,
+      mode: 'compare',
+      selectedModels: selectedIds,
+    );
+
+    if (!mounted || _session == null) return;
+
+    if (response != null) {
+      final returnedSessionId = response['session_id']?.toString();
+      if (returnedSessionId != null && returnedSessionId.isNotEmpty) {
+        _session!.backendSessionId = returnedSessionId;
+      }
+
+      final responsesList = response['responses'] as List<dynamic>? ?? [];
+
+      setState(() {
+        _thinking = false;
+        int insertPos = index + 1;
+        if (responsesList.isNotEmpty) {
+          for (final item in responsesList) {
+            final modelName = item['model_name']?.toString() ?? 'AI Model';
+            final status = item['status']?.toString() ?? 'success';
+            final reply = (status == 'success' && item['reply'] != null)
+                ? item['reply'].toString()
+                : (item['error']?.toString() ?? 'Model returned empty response');
+            final latency = item['latency_ms'] != null
+                ? double.tryParse(item['latency_ms'].toString())
+                : null;
+            final tokenUsage = item['token_usage'] is Map
+                ? Map<String, dynamic>.from(item['token_usage'])
+                : null;
+
+            _session!.messages.insert(
+              insertPos++,
+              ChatMessage(
+                isUser: false,
+                modelName: modelName,
+                text: reply,
+                latencyMs: latency,
+                tokenUsage: tokenUsage,
+                status: status,
+              ),
+            );
+          }
+        }
+        historyStore.touch(_session!);
+      });
+    } else {
+      setState(() {
+        _thinking = false;
+      });
+    }
   }
 
-  void _regenerateAt(int index) {
-    final m = _session!.messages[index];
-    // Find preceding prompt
+  void _regenerateAt(int index) async {
+    if (_session == null || index < 1) return;
     String prompt = '';
-    List<ChatAttachment> attachments = [];
     for (int i = index - 1; i >= 0; i--) {
       if (_session!.messages[i].isUser) {
         prompt = _session!.messages[i].text;
-        attachments = _session!.messages[i].attachments;
         break;
       }
     }
+    if (prompt.isEmpty) return;
 
-    final regeneratedText = DummyResponseGenerator.generate(
-      prompt: prompt,
-      attachments: attachments,
-      modelName: m.modelName,
-      modeName: 'Comparison',
-    );
+    final modelsToUse = _selectedModels;
+    final selectedIds = modelsToUse.map((m) => m.id).toList();
 
     setState(() {
-      _session!.messages[index] = ChatMessage(
-        isUser: false,
-        modelName: m.modelName,
-        text: regeneratedText,
-      );
+      _thinking = true;
     });
-    historyStore.touch(_session!);
+
+    final response = await ApiService.sendChatMessage(
+      prompt: prompt,
+      sessionId: _session?.backendSessionId,
+      mode: 'compare',
+      selectedModels: selectedIds,
+    );
+
+    if (!mounted || _session == null) return;
+
+    if (response != null) {
+      final responsesList = response['responses'] as List<dynamic>? ?? [];
+
+      setState(() {
+        _thinking = false;
+        if (responsesList.isNotEmpty && index < _session!.messages.length) {
+          final targetModelName = _session!.messages[index].modelName;
+          final matched = responsesList.firstWhere(
+            (r) => r['model_name'] == targetModelName,
+            orElse: () => responsesList.first,
+          );
+
+          final modelName = matched['model_name']?.toString() ?? 'AI Model';
+          final status = matched['status']?.toString() ?? 'success';
+          final reply = (status == 'success' && matched['reply'] != null)
+              ? matched['reply'].toString()
+              : (matched['error']?.toString() ?? 'Model returned empty response');
+          final latency = matched['latency_ms'] != null
+              ? double.tryParse(matched['latency_ms'].toString())
+              : null;
+          final tokenUsage = matched['token_usage'] is Map
+              ? Map<String, dynamic>.from(matched['token_usage'])
+              : null;
+
+          _session!.messages[index] = ChatMessage(
+            isUser: false,
+            modelName: modelName,
+            text: reply,
+            latencyMs: latency,
+            tokenUsage: tokenUsage,
+            status: status,
+          );
+        }
+        historyStore.touch(_session!);
+      });
+    } else {
+      setState(() {
+        _thinking = false;
+      });
+    }
   }
 
   void _copy(String text) {
@@ -211,7 +378,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           ScreenHeader(
             icon: Icons.grid_view_rounded,
             title: 'Comparison Mode',
-            subtitle: 'Compare responses from multiple AI models',
+            subtitle: 'Compare responses from multiple AI models side by side',
             onMenuTap: widget.onMenuTap,
             trailing: IconButton(
               tooltip: 'Select models',
@@ -244,6 +411,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                     ? _buildChatList(context)
                     : _buildEmptyState(context),
           ),
+          if (_thinking) _buildThinkingBar(context),
           ChatInputBar(
             controller: _controller,
             hint: _selectedModels.isEmpty
@@ -290,8 +458,6 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           children: [
             Icon(Icons.view_sidebar_rounded, color: context.textSecondary, size: 32),
             const SizedBox(height: 12),
-            // Text('No models selected',
-            //     style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 15.5)),
             AnimatedTextKit(
               animatedTexts: [
                 TypewriterAnimatedText(
@@ -336,25 +502,41 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           children: [
             const Icon(Icons.compare_arrows_rounded, color: AppColors.purple, size: 32),
             const SizedBox(height: 12),
-            // Text('Comparison Mode',
-            //     style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 15.5)),
             AnimatedTextKit(
               animatedTexts: [
                 TypewriterAnimatedText(
                   'Comparison Mode',
                   textStyle: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 15.5),
                   speed: const Duration(milliseconds: 100),
-                  
                 ),
-                
               ],
-              totalRepeatCount: 19,
+              totalRepeatCount: 1,
             ),
             const SizedBox(height: 6),
-            Text('Type a prompt below to see it answered by all ${_selectedModels.length} selected models.',
+            Text('Type a prompt below to see real-time responses from all ${_selectedModels.length} selected models.',
                 textAlign: TextAlign.center, style: TextStyle(color: context.textSecondary, fontSize: 12.5)),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildThinkingBar(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Comparing responses across ${_selectedModels.length} AI models in real-time...',
+            style: TextStyle(color: context.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w500),
+          ),
+        ],
       ),
     );
   }
@@ -406,7 +588,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     final bubbleMaxWidth = screenWidth < 660 ? screenWidth * 0.90 : 640.0;
     final isDark = context.isDark;
 
-    const claudeUserDark = Color(0xFF262522); // Claude warm charcoal
+    const claudeUserDark = Color(0xFF262522);
     const claudeBorderDark = Color(0xFF3E3C37);
     const claudeUserLight = Color(0xFFF5F3ED);
     const claudeBorderLight = Color(0xFFE2DFD6);
@@ -468,12 +650,16 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           final model = modelStore.models.where((e) => e.name == m.modelName).toList();
           final color = model.isNotEmpty ? model.first.color : AppColors.purple;
           final letter = model.isNotEmpty ? model.first.badgeLetter : '?';
+          final isError = m.status == 'error';
+
           return Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: context.surface2,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: context.borderColor),
+              border: Border.all(
+                color: isError ? Colors.redAccent.withValues(alpha: 0.5) : context.borderColor,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,12 +667,52 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                 Row(
                   children: [
                     CircleAvatar(
-                        radius: 11,
-                        backgroundColor: color,
-                        child: Text(letter, style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold))),
+                      radius: 11,
+                      backgroundColor: color,
+                      child: Text(letter,
+                          style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
                     const SizedBox(width: 8),
-                    Text(m.modelName ?? '',
-                        style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 13.5)),
+                    Expanded(
+                      child: Text(m.modelName ?? 'AI Model',
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 13.5)),
+                    ),
+                    if (m.latencyMs != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.purple.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.bolt_rounded, size: 11, color: AppColors.purple),
+                            const SizedBox(width: 2),
+                            Text(
+                              m.latencyMs! >= 1000
+                                  ? '${(m.latencyMs! / 1000).toStringAsFixed(2)}s'
+                                  : '${m.latencyMs!.toStringAsFixed(0)}ms',
+                              style: const TextStyle(color: AppColors.purple, fontSize: 10.5, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    if (m.tokenUsage != null && m.tokenUsage!['total_tokens'] != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: context.borderColor,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${m.tokenUsage!['total_tokens']} tok',
+                          style: TextStyle(color: context.textSecondary, fontSize: 10.5, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const Divider(height: 18),
@@ -551,13 +777,16 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                       value: selected,
                       activeColor: AppColors.purple,
                       controlAffinity: ListTileControlAffinity.trailing,
-                      onChanged: (v) => setState(() {
-                        if (v == true) {
-                          _selected.add(m.id);
-                        } else {
-                          _selected.remove(m.id);
-                        }
-                      }),
+                      onChanged: (v) {
+                        setState(() {
+                          if (v == true) {
+                            _selected.add(m.id);
+                          } else {
+                            _selected.remove(m.id);
+                          }
+                        });
+                        _persistModelSelection();
+                      },
                       secondary: CircleAvatar(
                         radius: 15,
                         backgroundColor: m.color,
@@ -579,7 +808,10 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () {
+                    _persistModelSelection();
+                    Navigator.of(context).pop();
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.purple,
                     foregroundColor: Colors.white,
