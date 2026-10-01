@@ -98,7 +98,7 @@ class Sidebar extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Neural',
+                      'Orbit',
                       style: TextStyle(
                         color: context.textPrimary,
                         fontWeight: FontWeight.w700,

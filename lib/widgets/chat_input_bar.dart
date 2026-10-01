@@ -385,7 +385,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Neutral AI can make mistakes. Check important information',
+              'Orbit AI can make mistakes. Check important information',
               style: TextStyle(
                 color: context.textSecondary.withValues(alpha: 0.7),
                 fontSize: 11,

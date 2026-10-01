@@ -171,7 +171,7 @@ Widget buildClaudeCard(BuildContext context) {
         lowerPrompt.contains('btao') ||
         lowerPrompt.contains('sahi kro') ||
         lowerPrompt.contains('urdu')) {
-      return '''Assalam-o-Alaikum! Main **$model** hoon, aapka neutral AI assistant.
+      return '''Assalam-o-Alaikum! Main **$model** hoon, aapka Orbit AI assistant.
 
 Aapka prompt: **"$cleanPrompt"**
 

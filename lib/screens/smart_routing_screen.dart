@@ -385,53 +385,13 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                     crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                     children: [
                       if (!m.isUser) ...[
-                        Row(
-                          children: [
-                            Text(
-                              m.modelName ?? 'Smart Routing',
-                              style: TextStyle(
-                                color: context.textPrimary,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                            if (m.category != null && m.category!.isNotEmpty) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppColors.openaiGreen.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  m.category!,
-                                  style: const TextStyle(
-                                    color: AppColors.openaiGreen,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            if (m.routingMethod != null && m.routingMethod!.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppColors.geminiBlue.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  m.routingMethod == 'llm_router' ? 'LLM Router' : m.routingMethod!,
-                                  style: const TextStyle(
-                                    color: AppColors.geminiBlue,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
+                        Text(
+                          m.modelName ?? 'Smart Routing',
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
                         ),
                         const SizedBox(height: 8),
                       ],

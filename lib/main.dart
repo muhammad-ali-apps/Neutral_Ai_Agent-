@@ -7,16 +7,16 @@ import 'screens/auth/signup_screen.dart';
 import 'widgets/home_shell.dart';
 
 void main() {
-  runApp(const NeuroRouteApp());
+  runApp(const OrbitApp());
 }
-class NeuroRouteApp extends StatefulWidget {
-  const NeuroRouteApp({super.key});
+class OrbitApp extends StatefulWidget {
+  const OrbitApp({super.key});
 
   @override
-  State<NeuroRouteApp> createState() => _NeuroRouteAppState();
+  State<OrbitApp> createState() => _OrbitAppState();
 }
 
-class _NeuroRouteAppState extends State<NeuroRouteApp> {
+class _OrbitAppState extends State<OrbitApp> {
   bool _isDarkMode = true;
 
   void _toggleTheme() => setState(() => _isDarkMode = !_isDarkMode);
@@ -24,7 +24,7 @@ class _NeuroRouteAppState extends State<NeuroRouteApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'NeuroRoute - AI Router',
+      title: 'Orbit - AI Router',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
