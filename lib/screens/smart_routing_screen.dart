@@ -9,6 +9,7 @@ import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
+import '../widgets/prompt_jump_bar.dart';
 
 /// Smart Routing screen — routes prompts to the best available model.
 class SmartRoutingScreen extends StatefulWidget {
@@ -22,277 +23,15 @@ class SmartRoutingScreen extends StatefulWidget {
 
 class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   final _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  bool _showScrollToBottom = false;
   bool _thinking = false;
   ChatSession? _session;
 
   int? _editingIndex;
   TextEditingController? _editController;
 
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_onScroll);
-    if (modelStore.models.isEmpty) {
-      modelStore.loadFromApi();
-    }
-  }
-
-  @override
-  void dispose() {
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final currentScroll = _scrollController.offset;
-    final show = (maxScroll - currentScroll) > 120;
-    if (show != _showScrollToBottom) {
-      setState(() => _showScrollToBottom = show);
-    }
-  }
-
-  void _scrollToBottom({bool animate = true}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      final target = _scrollController.position.maxScrollExtent;
-      if (animate) {
-        _scrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      } else {
-        _scrollController.jumpTo(target);
-      }
-    });
-  }
-
-  void _showActiveModelsDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return ListenableBuilder(
-          listenable: modelStore,
-          builder: (context, _) {
-            final activeModels = modelStore.active;
-
-            return Dialog(
-              backgroundColor: context.surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: BorderSide(color: context.borderColor),
-              ),
-              child: Container(
-                width: 520,
-                constraints: const BoxConstraints(maxHeight: 600),
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.success.withValues(alpha: 0.12),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.bolt_rounded, color: AppColors.success, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Active AI Models',
-                                style: TextStyle(
-                                  color: context.textPrimary,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 17,
-                                ),
-                              ),
-                              Text(
-                                '${activeModels.length} active models available for smart routing',
-                                style: TextStyle(color: context.textSecondary, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          icon: Icon(Icons.close_rounded, color: context.textSecondary),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Divider(color: context.borderColor, height: 1),
-                    const SizedBox(height: 14),
-                    Expanded(
-                      child: activeModels.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.widgets_outlined, color: context.textSecondary, size: 40),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'No active models found',
-                                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Make sure models are created and set to active.',
-                                    style: TextStyle(color: context.textSecondary, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: activeModels.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final m = activeModels[index];
-                                final providerEnum = LlmProvider.fromString(m.provider);
-                                return Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: context.surface2,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: context.borderColor),
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 16,
-                                        backgroundColor: m.color,
-                                        child: Text(
-                                          m.badgeLetter,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    m.name,
-                                                    style: TextStyle(
-                                                      color: context.textPrimary,
-                                                      fontWeight: FontWeight.w600,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                ),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                  decoration: BoxDecoration(
-                                                    color: AppColors.success.withValues(alpha: 0.12),
-                                                    borderRadius: BorderRadius.circular(10),
-                                                  ),
-                                                  child: const Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      CircleAvatar(radius: 3, backgroundColor: AppColors.success),
-                                                      SizedBox(width: 4),
-                                                      Text(
-                                                        'Active',
-                                                        style: TextStyle(
-                                                          color: AppColors.success,
-                                                          fontSize: 10.5,
-                                                          fontWeight: FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              '${providerEnum.displayName} • ${m.modelCode}',
-                                              style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                                            ),
-                                            if (m.description != null && m.description!.isNotEmpty) ...[
-                                              const SizedBox(height: 6),
-                                              Text(
-                                                m.description!,
-                                                style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                                              ),
-                                            ],
-                                            if (m.tags.isNotEmpty) ...[
-                                              const SizedBox(height: 8),
-                                              Wrap(
-                                                spacing: 6,
-                                                runSpacing: 4,
-                                                children: m.tags.map((tag) {
-                                                  return Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: AppColors.purple.withValues(alpha: 0.1),
-                                                      borderRadius: BorderRadius.circular(6),
-                                                    ),
-                                                    child: Text(
-                                                      '#$tag',
-                                                      style: const TextStyle(
-                                                        color: AppColors.purple,
-                                                        fontSize: 10.5,
-                                                        fontWeight: FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  );
-                                                }).toList(),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                    const SizedBox(height: 16),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        style: TextButton.styleFrom(
-                          backgroundColor: AppColors.purple,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: const Text('Close', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+  // Auto-scroll & jump anchors
+  final _scrollController = ScrollController();
+  final List<GlobalKey> _messageKeys = [];
 
   final _suggestions = const [
     'Write a Python function to sort a list',
@@ -303,12 +42,63 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
 
   void _notifySession() => widget.onSessionChanged?.call(_session?.id);
 
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _scrollToMessage(int index) {
+    if (index < 0 || index >= _messageKeys.length) return;
+    final ctx = _messageKeys[index].currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.fastOutSlowIn,
+        alignment: 0.0,
+      );
+    } else if (_scrollController.hasClients) {
+      final totalMessages = _session?.messages.length ?? 1;
+      final ratio = index / (totalMessages > 1 ? totalMessages - 1 : 1);
+      final targetOffset = (ratio * _scrollController.position.maxScrollExtent)
+          .clamp(0.0, _scrollController.position.maxScrollExtent);
+
+      _scrollController.jumpTo(targetOffset);
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final delayedCtx = _messageKeys[index].currentContext;
+        if (delayedCtx != null) {
+          Scrollable.ensureVisible(
+            delayedCtx,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: 0.0,
+          );
+        }
+      });
+    }
+  }
+
   /// Called by the main app Sidebar's "New Chat" button when this screen is active.
   void startNewChat() {
     setState(() {
       _session = null;
       _editingIndex = null;
       _editController = null;
+      _messageKeys.clear();
     });
     _notifySession();
   }
@@ -319,9 +109,13 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _session = s;
       _editingIndex = null;
       _editController = null;
+      _messageKeys.clear();
+      for (int i = 0; i < s.messages.length; i++) {
+        _messageKeys.add(GlobalKey());
+      }
     });
     _notifySession();
-    _scrollToBottom(animate: false);
+    _scrollToBottom();
   }
 
   void _send(String text, List<ChatAttachment> attachments) async {
@@ -334,6 +128,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       );
       final isNew = !historyStore.sessions.contains(_session);
       _session!.messages.add(ChatMessage(isUser: true, text: text, attachments: attachments));
+      _messageKeys.add(GlobalKey());
       if (isNew) {
         historyStore.addSession(_session!);
       } else {
@@ -371,6 +166,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
           category: category,
           routingMethod: routingMethod,
         ));
+        _messageKeys.add(GlobalKey());
         historyStore.touch(_session!);
       });
       _scrollToBottom();
@@ -381,6 +177,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
           isUser: false,
           text: 'Failed to connect to AI server. Please check your backend connection.',
         ));
+        _messageKeys.add(GlobalKey());
         historyStore.touch(_session!);
       });
       _scrollToBottom();
@@ -411,6 +208,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       // Drop the old AI response(s) that followed this prompt
       if (_session!.messages.length > index + 1) {
         _session!.messages.removeRange(index + 1, _session!.messages.length);
+        _messageKeys.removeRange(index + 1, _messageKeys.length);
       }
       _editingIndex = null;
       _editController = null;
@@ -445,8 +243,10 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
           category: category,
           routingMethod: routingMethod,
         ));
+        _messageKeys.add(GlobalKey());
         historyStore.touch(_session!);
       });
+      _scrollToBottom();
     } else {
       setState(() {
         _thinking = false;
@@ -454,8 +254,10 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
           isUser: false,
           text: 'Failed to connect to AI server.',
         ));
+        _messageKeys.add(GlobalKey());
         historyStore.touch(_session!);
       });
+      _scrollToBottom();
     }
   }
 
@@ -508,6 +310,8 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   Widget build(BuildContext context) {
     final activeCount = modelStore.active.length;
     final hasMessages = _session != null && _session!.messages.isNotEmpty;
+    // Count only user messages for jump bar threshold
+    final userMsgCount = _session?.messages.where((m) => m.isUser).length ?? 0;
     return Scaffold(
       backgroundColor: context.bg,
       body: Column(
@@ -519,47 +323,49 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
             onMenuTap: widget.onMenuTap,
             trailing: ListenableBuilder(
               listenable: modelStore,
-              builder: (context, _) {
-                final count = modelStore.active.length;
-                return InkWell(
+              builder: (context, _) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(16),
-                  onTap: () => _showActiveModelsDialog(context),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CircleAvatar(radius: 3.5, backgroundColor: AppColors.success),
-                        const SizedBox(width: 6),
-                        Text('$count models active',
-                            style: const TextStyle(
-                                color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w600)),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.info_outline_rounded, size: 13, color: AppColors.success),
-                      ],
-                    ),
-                  ),
-                );
-              },
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircleAvatar(radius: 3.5, backgroundColor: AppColors.success),
+                    const SizedBox(width: 6),
+                    Text('${modelStore.active.length} models active',
+                        style: const TextStyle(
+                            color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
             ),
           ),
           Expanded(
             child: Stack(
               children: [
                 hasMessages ? _buildChatList(context) : _buildEmptyState(context, activeCount),
-                if (hasMessages) _buildScrollToBottomButton(context),
+                // Jump anchors — show when 5+ user messages
+                if (userMsgCount >= 5)
+                  Positioned(
+                    left: 8,
+                    top: 0,
+                    bottom: 0,
+                    child: PromptJumpBar(
+                      messages: _session!.messages,
+                      messageKeys: _messageKeys,
+                      onJump: _scrollToMessage,
+                    ),
+                  ),
               ],
             ),
           ),
           if (_thinking) _buildThinkingBar(context),
           ChatInputBar(
             controller: _controller,
-            hint: "Ask anything ",
+            hint: _thinking ? "AI is responding..." : "Ask anything...",
+            isLoading: _thinking,
             onSend: _send,
           ),
         ],
@@ -619,45 +425,14 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     );
   }
 
-  Widget _buildScrollToBottomButton(BuildContext context) {
-    return Positioned(
-      right: 24,
-      bottom: 16,
-      child: AnimatedOpacity(
-        opacity: _showScrollToBottom ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 200),
-        child: IgnorePointer(
-          ignoring: !_showScrollToBottom,
-          child: Material(
-            color: context.surface2,
-            elevation: 4,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () => _scrollToBottom(animate: true),
-              child: Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: context.borderColor, width: 1.2),
-                ),
-                child: const Icon(
-                  Icons.arrow_downward_rounded,
-                  color: AppColors.purple,
-                  size: 20,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
     final isDark = context.isDark;
+
+    // Ensure keys list matches message count
+    while (_messageKeys.length < messages.length) {
+      _messageKeys.add(GlobalKey());
+    }
 
     return ListView.builder(
       controller: _scrollController,
@@ -668,6 +443,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
 
         if (i == _editingIndex) {
           return Center(
+            key: _messageKeys[i],
             child: Container(
               constraints: const BoxConstraints(maxWidth: 800),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -684,6 +460,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         final cleanedText = m.isUser ? m.text : cleanAiResponse(m.text);
 
         return Center(
+          key: _messageKeys[i],
           child: Container(
             constraints: const BoxConstraints(maxWidth: 800),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -707,13 +484,53 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                     crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                     children: [
                       if (!m.isUser) ...[
-                        Text(
-                          m.modelName ?? 'Smart Routing',
-                          style: TextStyle(
-                            color: context.textPrimary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                          ),
+                        Row(
+                          children: [
+                            Text(
+                              m.modelName ?? 'Smart Routing',
+                              style: TextStyle(
+                                color: context.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            if (m.category != null && m.category!.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.openaiGreen.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  m.category!,
+                                  style: const TextStyle(
+                                    color: AppColors.openaiGreen,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (m.routingMethod != null && m.routingMethod!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.geminiBlue.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  m.routingMethod == 'llm_router' ? 'LLM Router' : m.routingMethod!,
+                                  style: const TextStyle(
+                                    color: AppColors.geminiBlue,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 8),
                       ],
@@ -794,6 +611,8 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     );
   }
 }
+
+
 
 class _SuggestionCard extends StatelessWidget {
   final String text;

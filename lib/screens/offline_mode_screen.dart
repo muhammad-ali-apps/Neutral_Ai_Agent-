@@ -11,6 +11,7 @@ import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
 import '../widgets/formatted_message_view.dart';
+import '../widgets/prompt_jump_bar.dart';
 
 /// Offline Mode screen — local Ollama-powered chat.
 class OfflineModeScreen extends StatefulWidget {
@@ -24,64 +25,65 @@ class OfflineModeScreen extends StatefulWidget {
 
 class OfflineModeScreenState extends State<OfflineModeScreen> {
   final _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  bool _showScrollToBottom = false;
   bool _connecting = false;
   bool _connected = false;
   ChatSession? _session;
 
   int? _editingIndex;
   TextEditingController? _editController;
+  bool _thinking = false;
+
+  final _scrollController = ScrollController();
+  final List<GlobalKey> _messageKeys = [];
 
   final _dummyLocalModels = const ['llama3:8b', 'mistral:7b', 'phi3:mini'];
 
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_onScroll);
-  }
+  void _notifySession() => widget.onSessionChanged?.call(_session?.id);
 
   @override
   void dispose() {
-    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
-    _controller.dispose();
     super.dispose();
   }
 
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final currentScroll = _scrollController.offset;
-    final show = (maxScroll - currentScroll) > 120;
-    if (show != _showScrollToBottom) {
-      setState(() => _showScrollToBottom = show);
+  void _scrollToMessage(int index) {
+    if (index < 0 || index >= _messageKeys.length) return;
+    final ctx = _messageKeys[index].currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.fastOutSlowIn,
+        alignment: 0.0,
+      );
+    } else if (_scrollController.hasClients) {
+      final totalMessages = _session?.messages.length ?? 1;
+      final ratio = index / (totalMessages > 1 ? totalMessages - 1 : 1);
+      final targetOffset = (ratio * _scrollController.position.maxScrollExtent)
+          .clamp(0.0, _scrollController.position.maxScrollExtent);
+
+      _scrollController.jumpTo(targetOffset);
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final delayedCtx = _messageKeys[index].currentContext;
+        if (delayedCtx != null) {
+          Scrollable.ensureVisible(
+            delayedCtx,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: 0.0,
+          );
+        }
+      });
     }
   }
-
-  void _scrollToBottom({bool animate = true}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      final target = _scrollController.position.maxScrollExtent;
-      if (animate) {
-        _scrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      } else {
-        _scrollController.jumpTo(target);
-      }
-    });
-  }
-
-  void _notifySession() => widget.onSessionChanged?.call(_session?.id);
 
   void startNewChat() {
     setState(() {
       _session = null;
       _editingIndex = null;
       _editController = null;
+      _messageKeys.clear();
     });
     _notifySession();
   }
@@ -92,9 +94,12 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       _session = s;
       _editingIndex = null;
       _editController = null;
+      _messageKeys.clear();
+      for (int i = 0; i < s.messages.length; i++) {
+        _messageKeys.add(GlobalKey());
+      }
     });
     _notifySession();
-    _scrollToBottom(animate: false);
   }
 
   void _connect() {
@@ -111,6 +116,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
   void _send(String text, List<ChatAttachment> attachments) {
     if (text.trim().isEmpty && attachments.isEmpty) return;
     setState(() {
+      _thinking = true;
       _session ??= ChatSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         title: text.length > 42 ? '${text.substring(0, 42)}...' : (text.isNotEmpty ? text : (attachments.isNotEmpty ? attachments.first.name : 'Offline Chat')),
@@ -125,7 +131,6 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       }
     });
     _notifySession();
-    _scrollToBottom();
     _appendAiResponse(prompt: text, attachments: attachments);
   }
 
@@ -146,6 +151,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       );
 
       setState(() {
+        _thinking = false;
         _session!.messages.add(ChatMessage(
           isUser: false,
           modelName: model,
@@ -153,7 +159,6 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
         ));
         historyStore.touch(_session!);
       });
-      _scrollToBottom();
     });
   }
 
@@ -239,48 +244,27 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
             child: Stack(
               children: [
                 hasMessages ? _buildChatList(context) : _buildSetupState(context),
-                if (hasMessages) _buildScrollToBottomButton(context),
+                if (_session != null)
+                  Positioned(
+                    left: 8,
+                    top: 0,
+                    bottom: 0,
+                    child: PromptJumpBar(
+                      messages: _session!.messages,
+                      messageKeys: _messageKeys,
+                      onJump: _scrollToMessage,
+                    ),
+                  ),
               ],
             ),
           ),
-          ChatInputBar(controller: _controller, hint: 'Ask Anything', onSend: _send),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScrollToBottomButton(BuildContext context) {
-    return Positioned(
-      right: 24,
-      bottom: 16,
-      child: AnimatedOpacity(
-        opacity: _showScrollToBottom ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 200),
-        child: IgnorePointer(
-          ignoring: !_showScrollToBottom,
-          child: Material(
-            color: context.surface2,
-            elevation: 4,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () => _scrollToBottom(animate: true),
-              child: Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: context.borderColor, width: 1.2),
-                ),
-                child: const Icon(
-                  Icons.arrow_downward_rounded,
-                  color: AppColors.purple,
-                  size: 20,
-                ),
-              ),
-            ),
+          ChatInputBar(
+            controller: _controller,
+            hint: _thinking ? 'AI is responding...' : 'Ask Anything',
+            isLoading: _thinking,
+            onSend: _send,
           ),
-        ),
+        ],
       ),
     );
   }
@@ -296,6 +280,10 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
     const claudeUserLight = Color(0xFFF5F3ED);
     const claudeBorderLight = Color(0xFFE2DFD6);
 
+    while (_messageKeys.length < messages.length) {
+      _messageKeys.add(GlobalKey());
+    }
+
     return ListView.builder(
       controller: _scrollController,
       padding: EdgeInsets.symmetric(
@@ -308,6 +296,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
 
         if (i == _editingIndex) {
           return Align(
+            key: _messageKeys[i],
             alignment: Alignment.centerRight,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 14),
@@ -321,6 +310,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
         }
 
         return Align(
+          key: _messageKeys[i],
           alignment: m.isUser ? Alignment.centerRight : Alignment.centerLeft,
           child: Column(
             crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,

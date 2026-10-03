@@ -19,7 +19,7 @@ final navItems = [
 ];
 
 /// Application sidebar with navigation, per-mode history, and account controls.
-class Sidebar extends StatefulWidget {
+class Sidebar extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelect;
   final VoidCallback onAdminTap;
@@ -47,32 +47,9 @@ class Sidebar extends StatefulWidget {
     this.onClose,
   });
 
-  @override
-  State<Sidebar> createState() => _SidebarState();
-}
-
-class _SidebarState extends State<Sidebar> {
-  bool _isAdmin = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkUserRole();
-  }
-
-  Future<void> _checkUserRole() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String role = prefs.getString('userRole')?.toLowerCase() ?? '';
-    if (mounted) {
-      setState(() {
-        _isAdmin = (role == 'admin' || role == 'administrator');
-      });
-    }
-  }
-
   ChatMode? get _currentMode {
-    if (widget.adminSelected) return null;
-    switch (widget.selectedIndex) {
+    if (adminSelected) return null;
+    switch (selectedIndex) {
       case 0:
         return ChatMode.smartRouting;
       case 1:
@@ -89,98 +66,70 @@ class _SidebarState extends State<Sidebar> {
     final mode = _currentMode;
 
     return Container(
-      width: 260,
+      width: 256,
       color: context.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 6),
             child: Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color.fromARGB(255, 215, 213, 235), AppColors.purpleGradientEnd],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  // child: const Icon(Icons.route_rounded, color: Colors.white, size: 20),
-                child: Image.asset(
+                  child: Image.asset(
                     'assets/images/logo.png',
-                    width: 20,
-                    height: 20,
+                    width: 18,
+                    height: 18,
                   ),
                 ),
                 const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Orbit',
-                      style: TextStyle(
-                        color: context.textPrimary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15.5,
-                      ),
+                Expanded(
+                  child: Text(
+                    'Neural AI',
+                    style: TextStyle(
+                      color: context.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
                     ),
-                    Text(
-                      'AI Agent',
-                      style: TextStyle(color: context.textSecondary, fontSize: 11),
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),
           ),
-          if (!widget.adminSelected)
+
+          if (!adminSelected)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: Material(
-                color: AppColors.purple,
-                borderRadius: BorderRadius.circular(8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () {
-                    widget.onNewChat();
-                    widget.onClose?.call();
-                  },
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.add_rounded, color: Colors.white, size: 18),
-                        SizedBox(width: 8),
-                        Text(
-                          'New Chat',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              padding: const EdgeInsets.fromLTRB(8, 2, 8, 8),
+              child: _NewChatTile(
+                onTap: () {
+                  onNewChat();
+                  onClose?.call();
+                },
               ),
             ),
+
           Divider(color: context.borderColor, height: 1),
           const SizedBox(height: 6),
           ...List.generate(navItems.length, (i) {
             final item = navItems[i];
-            final selected = i == widget.selectedIndex && !widget.adminSelected;
+            final selected = i == selectedIndex && !adminSelected;
             return _NavTile(
               icon: item.icon,
               label: item.label,
               selected: selected,
               onTap: () {
-                widget.onSelect(i);
-                widget.onClose?.call();
+                onSelect(i);
+                onClose?.call();
               },
             );
           }),
@@ -188,24 +137,24 @@ class _SidebarState extends State<Sidebar> {
             const SizedBox(height: 4),
             Divider(color: context.borderColor, height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
               child: Text(
                 '${mode.label} History',
                 style: TextStyle(
                   color: context.textSecondary,
-                  fontSize: 11,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
+                  letterSpacing: 0.5,
                 ),
               ),
             ),
             Expanded(
               child: _HistoryList(
                 mode: mode,
-                activeSessionId: widget.activeSessionId,
+                activeSessionId: activeSessionId,
                 onSelect: (s) {
-                  widget.onSelectSession(s);
-                  widget.onClose?.call();
+                  onSelectSession(s);
+                  onClose?.call();
                 },
               ),
             ),
@@ -214,59 +163,86 @@ class _SidebarState extends State<Sidebar> {
           Divider(color: context.borderColor, height: 1),
           const SizedBox(height: 4),
           _NavTile(
-            icon: widget.isDarkMode ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined,
-            label: widget.isDarkMode ? 'Light Mode' : 'Dark Mode',
+            icon: isDarkMode ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined,
+            label: isDarkMode ? 'Light Mode' : 'Dark Mode',
             selected: false,
-            onTap: widget.onToggleTheme,
+            onTap: onToggleTheme,
           ),
-          if (_isAdmin)
-            _NavTile(
-              icon: Icons.settings_outlined,
-              label: 'Admin Panel',
-              selected: widget.adminSelected,
-              onTap: () {
-                context.go('/admin-panel');
-                widget.onClose?.call();
-              },
-            ),
+          _NavTile(
+            icon: Icons.settings_outlined,
+            label: 'Admin Panel',
+            selected: adminSelected,
+            onTap: () {
+              context.go('/admin-panel');
+              onClose?.call();
+            },
+          ),
           Divider(color: context.borderColor, height: 1),
-          _AccountTile(onLogout: widget.onLogout),
+          _AccountTile(onLogout: onLogout),
           const SizedBox(height: 4),
         ],
       ),
     );
   }
+
 }
 
-String _getDateCategory(DateTime dateTime) {
-  final now = DateTime.now();
-  final todayStart = DateTime(now.year, now.month, now.day);
-  final yesterdayStart = todayStart.subtract(const Duration(days: 1));
-  final dateStart = DateTime(dateTime.year, dateTime.month, dateTime.day);
+/// Full ChatGPT-style "New Chat" tile with left pencil icon + text.
+class _NewChatTile extends StatefulWidget {
+  final VoidCallback onTap;
+  const _NewChatTile({required this.onTap});
 
-  if (dateStart == todayStart) {
-    return 'Today';
-  } else if (dateStart == yesterdayStart) {
-    return 'Yesterday';
-  } else {
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    return '${dateTime.day} ${months[dateTime.month - 1]} ${dateTime.year}';
+  @override
+  State<_NewChatTile> createState() => _NewChatTileState();
+}
+
+class _NewChatTileState extends State<_NewChatTile> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? (isDark ? const Color(0xFF2B2B2B) : const Color(0xFFE5E5E5))
+                : (isDark ? const Color(0xFF212121) : const Color(0xFFF6F6F6)),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.edit_outlined,
+                size: 17,
+                color: context.textPrimary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'New Chat',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
-}
-
-abstract class _HistoryItem {}
-
-class _HistoryHeaderItem extends _HistoryItem {
-  final String title;
-  _HistoryHeaderItem(this.title);
-}
-
-class _HistorySessionItem extends _HistoryItem {
-  final ChatSession session;
-  _HistorySessionItem(this.session);
 }
 
 /// Compact history list scoped to one chat mode.
@@ -354,31 +330,37 @@ class _HistoryListState extends State<_HistoryList> {
     setState(() => _confirmDeleteId = null);
   }
 
+  String _formatSessionTime(DateTime dt) {
+    final local = dt.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    final timeStr = '$hour:$minute $period';
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final sessionDay = DateTime(local.year, local.month, local.day);
+    final diffDays = today.difference(sessionDay).inDays;
+
+    if (diffDays == 0) {
+      return 'Today at $timeStr';
+    } else if (diffDays == 1) {
+      return 'Yesterday at $timeStr';
+    } else if (diffDays < 7 && diffDays > 0) {
+      final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      return '${days[local.weekday - 1]} at $timeStr';
+    } else {
+      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${months[local.month - 1]} ${local.day}, $timeStr';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: historyStore,
       builder: (context, _) {
         final sessions = historyStore.forMode(widget.mode);
-        if (historyStore.isLoading && sessions.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Row(
-              children: [
-                const SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 1.8, color: AppColors.purple),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Loading history...',
-                  style: TextStyle(color: context.textSecondary, fontSize: 12),
-                ),
-              ],
-            ),
-          );
-        }
         if (sessions.isEmpty) {
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -388,41 +370,11 @@ class _HistoryListState extends State<_HistoryList> {
             ),
           );
         }
-
-        final items = <_HistoryItem>[];
-        String? lastGroupLabel;
-
-        for (final s in sessions) {
-          final groupLabel = _getDateCategory(s.updatedAt);
-          if (groupLabel != lastGroupLabel) {
-            items.add(_HistoryHeaderItem(groupLabel));
-            lastGroupLabel = groupLabel;
-          }
-          items.add(_HistorySessionItem(s));
-        }
-
         return ListView.builder(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          itemCount: items.length,
+          itemCount: sessions.length,
           itemBuilder: (context, i) {
-            final item = items[i];
-
-            if (item is _HistoryHeaderItem) {
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
-                child: Text(
-                  item.title,
-                  style: TextStyle(
-                    color: context.textSecondary,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              );
-            }
-
-            final s = (item as _HistorySessionItem).session;
+            final s = sessions[i];
             final selected = s.id == widget.activeSessionId;
             final isEditing = _editingId == s.id;
             final isConfirming = _confirmDeleteId == s.id;
@@ -465,15 +417,29 @@ class _HistoryListState extends State<_HistoryList> {
                                   onSubmit: () => _commitRename(s),
                                   onCancel: _cancelRename,
                                 )
-                              : Text(
-                                  s.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: selected ? AppColors.purple : context.textPrimary,
-                                    fontSize: 13,
-                                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                                  ),
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      s.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: selected ? AppColors.purple : context.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _formatSessionTime(s.updatedAt),
+                                      style: TextStyle(
+                                        color: context.textSecondary.withValues(alpha: 0.75),
+                                        fontSize: 10.5,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                         ),
                         if (!isEditing)
@@ -763,7 +729,7 @@ class _AccountTileState extends State<_AccountTile> {
   }
 }
 
-class _NavTile extends StatelessWidget {
+class _NavTile extends StatefulWidget {
   final IconData icon;
   final String label;
   final bool selected;
@@ -777,36 +743,54 @@ class _NavTile extends StatelessWidget {
   });
 
   @override
+  State<_NavTile> createState() => _NavTileState();
+}
+
+class _NavTileState extends State<_NavTile> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
-      child: Material(
-        color: selected ? AppColors.purple.withValues(alpha: 0.12) : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onTap,
-          hoverColor: AppColors.purple.withValues(alpha: 0.06),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: selected ? AppColors.purple : context.textSecondary,
+    final isDark = context.isDark;
+    final selected = widget.selected;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected
+                ? (isDark
+                    ? const Color(0xFF2F2F2F)
+                    : const Color(0xFFEEEEEE))
+                : _hovered
+                    ? (isDark
+                        ? const Color(0xFF2A2A2A)
+                        : const Color(0xFFF0F0F0))
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.icon,
+                size: 17,
+                color: selected ? context.textPrimary : context.textSecondary,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  color: selected ? context.textPrimary : context.textSecondary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  fontSize: 14,
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: selected ? AppColors.purple : context.textPrimary,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                    fontSize: 13.5,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
