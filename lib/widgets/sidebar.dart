@@ -238,6 +238,37 @@ class _SidebarState extends State<Sidebar> {
   }
 }
 
+String _getDateCategory(DateTime dateTime) {
+  final now = DateTime.now();
+  final todayStart = DateTime(now.year, now.month, now.day);
+  final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+  final dateStart = DateTime(dateTime.year, dateTime.month, dateTime.day);
+
+  if (dateStart == todayStart) {
+    return 'Today';
+  } else if (dateStart == yesterdayStart) {
+    return 'Yesterday';
+  } else {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return '${dateTime.day} ${months[dateTime.month - 1]} ${dateTime.year}';
+  }
+}
+
+abstract class _HistoryItem {}
+
+class _HistoryHeaderItem extends _HistoryItem {
+  final String title;
+  _HistoryHeaderItem(this.title);
+}
+
+class _HistorySessionItem extends _HistoryItem {
+  final ChatSession session;
+  _HistorySessionItem(this.session);
+}
+
 /// Compact history list scoped to one chat mode.
 class _HistoryList extends StatefulWidget {
   final ChatMode mode;
@@ -329,6 +360,25 @@ class _HistoryListState extends State<_HistoryList> {
       listenable: historyStore,
       builder: (context, _) {
         final sessions = historyStore.forMode(widget.mode);
+        if (historyStore.isLoading && sessions.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 1.8, color: AppColors.purple),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Loading history...',
+                  style: TextStyle(color: context.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          );
+        }
         if (sessions.isEmpty) {
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -338,11 +388,41 @@ class _HistoryListState extends State<_HistoryList> {
             ),
           );
         }
+
+        final items = <_HistoryItem>[];
+        String? lastGroupLabel;
+
+        for (final s in sessions) {
+          final groupLabel = _getDateCategory(s.updatedAt);
+          if (groupLabel != lastGroupLabel) {
+            items.add(_HistoryHeaderItem(groupLabel));
+            lastGroupLabel = groupLabel;
+          }
+          items.add(_HistorySessionItem(s));
+        }
+
         return ListView.builder(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          itemCount: sessions.length,
+          itemCount: items.length,
           itemBuilder: (context, i) {
-            final s = sessions[i];
+            final item = items[i];
+
+            if (item is _HistoryHeaderItem) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                child: Text(
+                  item.title,
+                  style: TextStyle(
+                    color: context.textSecondary,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              );
+            }
+
+            final s = (item as _HistorySessionItem).session;
             final selected = s.id == widget.activeSessionId;
             final isEditing = _editingId == s.id;
             final isConfirming = _confirmDeleteId == s.id;

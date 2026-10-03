@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models.dart';
+import '../services/api_services.dart';
 import '../screens/admin_panel_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/comparison_screen.dart';
@@ -38,6 +39,7 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     modelStore.loadFromApi();
+    historyStore.loadFromApi();
   }
 
   /// Tracks the active session id per mode so the Sidebar can highlight it.
@@ -111,7 +113,7 @@ class _HomeShellState extends State<HomeShell> {
     setState(() => _activeSessionIds[_currentMode] = null);
   }
 
-  void _openSession(ChatSession session) {
+  void _openSession(ChatSession session) async {
     final targetIndex = switch (session.mode) {
       ChatMode.smartRouting => 0,
       ChatMode.comparison => 1,
@@ -122,19 +124,29 @@ class _HomeShellState extends State<HomeShell> {
       _adminSelected = false;
       _activeSessionIds[session.mode] = session.id;
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      switch (session.mode) {
-        case ChatMode.smartRouting:
-          _smartKey.currentState?.openSession(session);
-          break;
-        case ChatMode.comparison:
-          _comparisonKey.currentState?.openSession(session);
-          break;
-        case ChatMode.offline:
-          _offlineKey.currentState?.openSession(session);
-          break;
+
+    if (session.messages.isEmpty) {
+      final targetId = session.backendSessionId ?? session.id;
+      final fullData = await ApiService.fetchChatSessionById(targetId);
+      if (fullData != null) {
+        final fullSession = ChatSession.fromJson(fullData);
+        session.messages.clear();
+        session.messages.addAll(fullSession.messages);
       }
-    });
+    }
+
+    if (!mounted) return;
+    switch (session.mode) {
+      case ChatMode.smartRouting:
+        _smartKey.currentState?.openSession(session);
+        break;
+      case ChatMode.comparison:
+        _comparisonKey.currentState?.openSession(session);
+        break;
+      case ChatMode.offline:
+        _offlineKey.currentState?.openSession(session);
+        break;
+    }
   }
 
   void _logout() {

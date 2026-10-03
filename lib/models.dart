@@ -420,11 +420,91 @@ class ChatSession {
         updatedAt = updatedAt ?? DateTime.now();
 
   String get preview => messages.isEmpty ? 'New conversation' : messages.first.text;
+
+  /// Create ChatSession from backend JSON response.
+  factory ChatSession.fromJson(Map<String, dynamic> json) {
+    final rawId = json['_id'] is Map
+        ? (json['_id']['\$oid'] ?? json['_id'].toString())
+        : (json['_id'] ?? json['id'] ?? json['session_id'] ?? '').toString();
+
+    final backendId = (json['session_id'] ?? rawId).toString();
+
+    final modeStr = (json['mode'] ?? 'smart').toString().toLowerCase();
+    ChatMode chatMode;
+    if (modeStr == 'compare' || modeStr == 'comparison') {
+      chatMode = ChatMode.comparison;
+    } else if (modeStr == 'offline') {
+      chatMode = ChatMode.offline;
+    } else {
+      chatMode = ChatMode.smartRouting;
+    }
+
+    final parsedMessages = <ChatMessage>[];
+    if (json['messages'] is List) {
+      for (final msg in (json['messages'] as List)) {
+        if (msg is Map<String, dynamic>) {
+          final isUser = msg['is_user'] == true ||
+              msg['role'] == 'user' ||
+              msg['isUser'] == true;
+          final text = (msg['text'] ?? msg['content'] ?? msg['message'] ?? '').toString();
+          final modelName = msg['model_name'] ?? msg['model'] ?? msg['routed_model'];
+          parsedMessages.add(ChatMessage(
+            isUser: isUser,
+            text: text,
+            modelName: modelName?.toString(),
+            category: msg['category']?.toString(),
+            routingMethod: msg['routing_method']?.toString(),
+            latencyMs: msg['latency_ms'] != null ? double.tryParse(msg['latency_ms'].toString()) : null,
+            tokenUsage: msg['token_usage'] is Map ? Map<String, dynamic>.from(msg['token_usage']) : null,
+            status: msg['status']?.toString(),
+          ));
+        }
+      }
+    }
+
+    DateTime updated = DateTime.now();
+    if (json['updated_at'] != null) {
+      updated = DateTime.tryParse(json['updated_at'].toString()) ?? DateTime.now();
+    } else if (json['created_at'] != null) {
+      updated = DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now();
+    }
+
+    return ChatSession(
+      id: rawId.isNotEmpty ? rawId : backendId,
+      title: (json['title'] ?? 'New Chat').toString(),
+      mode: chatMode,
+      messages: parsedMessages,
+      updatedAt: updated,
+      backendSessionId: backendId,
+    );
+  }
 }
 
-/// In-memory chat history store across all modes.
+/// Chat history store backed by backend REST API and in-memory caching.
 class HistoryStore extends ChangeNotifier {
   final List<ChatSession> sessions = [];
+  bool isLoading = false;
+
+  /// Fetch all sessions from backend API.
+  Future<void> loadFromApi() async {
+    isLoading = true;
+    notifyListeners();
+
+    try {
+      final data = await ApiService.fetchChatSessions();
+      if (data != null) {
+        sessions.clear();
+        for (final item in data) {
+          sessions.add(ChatSession.fromJson(item));
+        }
+      }
+    } catch (e) {
+      print('HistoryStore.loadFromApi error: $e');
+    }
+
+    isLoading = false;
+    notifyListeners();
+  }
 
   void addSession(ChatSession session) {
     sessions.insert(0, session);
@@ -438,16 +518,22 @@ class HistoryStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void rename(String id, String newTitle) {
-    final s = sessions.where((e) => e.id == id).cast<ChatSession?>().firstOrNull;
-    if (s == null) return;
-    s.title = newTitle;
-    notifyListeners();
+  Future<void> rename(String id, String newTitle) async {
+    final s = sessions.where((e) => e.id == id || e.backendSessionId == id).cast<ChatSession?>().firstOrNull;
+    if (s != null) {
+      s.title = newTitle;
+      notifyListeners();
+      final targetId = s.backendSessionId ?? s.id;
+      await ApiService.renameChatSession(targetId, newTitle);
+    }
   }
 
-  void delete(String id) {
-    sessions.removeWhere((e) => e.id == id);
+  Future<void> delete(String id) async {
+    final s = sessions.where((e) => e.id == id || e.backendSessionId == id).cast<ChatSession?>().firstOrNull;
+    final targetId = s?.backendSessionId ?? id;
+    sessions.removeWhere((e) => e.id == id || e.backendSessionId == id);
     notifyListeners();
+    await ApiService.deleteChatSession(targetId);
   }
 
   List<ChatSession> forMode(ChatMode mode) =>

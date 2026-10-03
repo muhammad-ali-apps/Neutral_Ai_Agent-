@@ -477,5 +477,102 @@ class ApiService{
             return null;
         }
     }
+
+    // ─── Chat Sessions History API ───
+
+    /// GET /api/chat-sessions — fetch all user chat sessions.
+    static Future<List<Map<String, dynamic>>?> fetchChatSessions() async {
+        try {
+            final headers = await _authHeaders();
+            final response = await http.get(
+                Uri.parse('$baseUrl/chat-sessions'),
+                headers: headers,
+            );
+            if (response.statusCode == 200) {
+                final decoded = json.decode(response.body);
+                List<dynamic> list = [];
+                if (decoded is List) {
+                    list = decoded;
+                } else if (decoded is Map) {
+                    if (decoded['data'] is List) {
+                        list = decoded['data'];
+                    } else if (decoded['sessions'] is List) {
+                        list = decoded['sessions'];
+                    }
+                }
+                return list.cast<Map<String, dynamic>>();
+            } else {
+                print('Fetch chat sessions failed: ${response.statusCode}');
+                print('Error Body: ${response.body}');
+                return null;
+            }
+        } catch (e) {
+            print('Error fetching chat sessions: $e');
+            return null;
+        }
+    }
+
+    /// GET /api/chat-sessions/{id} — fetch a single chat session with full messages.
+    static Future<Map<String, dynamic>?> fetchChatSessionById(String id) async {
+        try {
+            final headers = await _authHeaders();
+            final response = await http.get(
+                Uri.parse('$baseUrl/chat-sessions/$id'),
+                headers: headers,
+            );
+            if (response.statusCode == 200) {
+                return json.decode(response.body) as Map<String, dynamic>;
+            } else {
+                print('Fetch chat session by ID failed: ${response.statusCode}');
+                return null;
+            }
+        } catch (e) {
+            print('Error fetching chat session by ID: $e');
+            return null;
+        }
+    }
+
+    /// PUT /api/chat-sessions/{id} — rename/update chat session.
+    static Future<bool> renameChatSession(String id, String newTitle) async {
+        try {
+            final headers = await _authHeaders();
+            final response = await http.put(
+                Uri.parse('$baseUrl/chat-sessions/$id'),
+                headers: headers,
+                body: json.encode({'title': newTitle}),
+            );
+            if (response.statusCode == 200) {
+                print('Renamed chat session successfully');
+                return true;
+            } else {
+                print('Rename chat session failed: ${response.statusCode}');
+                return false;
+            }
+        } catch (e) {
+            print('Error renaming chat session: $e');
+            return false;
+        }
+    }
+
+    /// DELETE /api/chat-sessions/{id} — delete chat session.
+    static Future<bool> deleteChatSession(String id) async {
+        try {
+            final headers = await _authHeaders();
+            final response = await http.delete(
+                Uri.parse('$baseUrl/chat-sessions/$id'),
+                headers: headers,
+            );
+            if (response.statusCode == 200) {
+                print('Deleted chat session successfully');
+                return true;
+            } else {
+                print('Delete chat session failed: ${response.statusCode}');
+                return false;
+            }
+        } catch (e) {
+            print('Error deleting chat session: $e');
+            return false;
+        }
+    }
 }
 
