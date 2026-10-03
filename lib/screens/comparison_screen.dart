@@ -24,6 +24,8 @@ class ComparisonScreen extends StatefulWidget {
 class ComparisonScreenState extends State<ComparisonScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  bool _showScrollToBottom = false;
   final Set<String> _selected = <String>{};
   ChatSession? _session;
   bool _thinking = false;
@@ -34,7 +36,42 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadUserPreferencesAndModels();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.offset;
+    final show = (maxScroll - currentScroll) > 120;
+    if (show != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = show);
+    }
+  }
+
+  void _scrollToBottom({bool animate = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final target = _scrollController.position.maxScrollExtent;
+      if (animate) {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
+    });
   }
 
   Future<void> _loadUserPreferencesAndModels() async {
@@ -108,6 +145,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _thinking = false;
     });
     _notifySession();
+    _scrollToBottom(animate: false);
   }
 
   void _send(String text, List<ChatAttachment> attachments) async {
@@ -135,6 +173,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _thinking = true;
     });
     _notifySession();
+    _scrollToBottom();
 
     final response = await ApiService.sendChatMessage(
       prompt: text,
@@ -187,6 +226,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
         }
         historyStore.touch(_session!);
       });
+      _scrollToBottom();
     } else {
       setState(() {
         _thinking = false;
@@ -197,6 +237,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
         ));
         historyStore.touch(_session!);
       });
+      _scrollToBottom();
     }
   }
 
@@ -405,11 +446,16 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           ),
           if (_selectedModels.isNotEmpty) _buildSelectedBar(context),
           Expanded(
-            child: _selectedModels.isEmpty
-                ? _buildNoModelsState(context)
-                : hasMessages
-                    ? _buildChatList(context)
-                    : _buildEmptyState(context),
+            child: Stack(
+              children: [
+                _selectedModels.isEmpty
+                    ? _buildNoModelsState(context)
+                    : hasMessages
+                        ? _buildChatList(context)
+                        : _buildEmptyState(context),
+                if (hasMessages) _buildScrollToBottomButton(context),
+              ],
+            ),
           ),
           if (_thinking) _buildThinkingBar(context),
           ChatInputBar(
@@ -541,6 +587,42 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     );
   }
 
+  Widget _buildScrollToBottomButton(BuildContext context) {
+    return Positioned(
+      right: 24,
+      bottom: 16,
+      child: AnimatedOpacity(
+        opacity: _showScrollToBottom ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 200),
+        child: IgnorePointer(
+          ignoring: !_showScrollToBottom,
+          child: Material(
+            color: context.surface2,
+            elevation: 4,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => _scrollToBottom(animate: true),
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: context.borderColor, width: 1.2),
+                ),
+                child: const Icon(
+                  Icons.arrow_downward_rounded,
+                  color: AppColors.purple,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
     final widgets = <Widget>[];
@@ -575,6 +657,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       }
     }
     return ListView(
+      controller: _scrollController,
       padding: EdgeInsets.symmetric(
         horizontal: MediaQuery.of(context).size.width < 500 ? 12 : 20,
         vertical: 16,
@@ -767,40 +850,68 @@ class ComparisonScreenState extends State<ComparisonScreen> {
             Expanded(
               child: ListenableBuilder(
                 listenable: modelStore,
-                builder: (context, _) => ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: modelStore.models.length,
-                  itemBuilder: (context, i) {
-                    final m = modelStore.models[i];
-                    final selected = _selected.contains(m.id);
-                    return CheckboxListTile(
-                      value: selected,
-                      activeColor: AppColors.purple,
-                      controlAffinity: ListTileControlAffinity.trailing,
-                      onChanged: (v) {
-                        setState(() {
-                          if (v == true) {
-                            _selected.add(m.id);
-                          } else {
-                            _selected.remove(m.id);
-                          }
-                        });
-                        _persistModelSelection();
-                      },
-                      secondary: CircleAvatar(
-                        radius: 15,
-                        backgroundColor: m.color,
-                        child: Text(m.badgeLetter, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                builder: (context, _) {
+                  final availableModels = modelStore.models;
+                  if (availableModels.isEmpty) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (modelStore.isLoading)
+                              const CircularProgressIndicator(color: AppColors.purple)
+                            else ...[
+                              Icon(Icons.widgets_outlined, color: context.textSecondary, size: 36),
+                              const SizedBox(height: 12),
+                              Text('No models found',
+                                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 4),
+                              Text('Models from backend will appear here once loaded.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: context.textSecondary, fontSize: 12)),
+                            ],
+                          ],
+                        ),
                       ),
-                      title: Text(m.name,
-                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 13.5)),
-                      subtitle: Text(m.active ? m.provider : '${m.provider} · Inactive',
-                          style: TextStyle(
-                              color: m.active ? context.textSecondary : Colors.redAccent.withValues(alpha: 0.8),
-                              fontSize: 11.5)),
                     );
-                  },
-                ),
+                  }
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: availableModels.length,
+                    itemBuilder: (context, i) {
+                      final m = availableModels[i];
+                      final selected = _selected.contains(m.id);
+                      final providerEnum = LlmProvider.fromString(m.provider);
+                      return CheckboxListTile(
+                        value: selected,
+                        activeColor: AppColors.purple,
+                        controlAffinity: ListTileControlAffinity.trailing,
+                        onChanged: (v) {
+                          setState(() {
+                            if (v == true) {
+                              _selected.add(m.id);
+                            } else {
+                              _selected.remove(m.id);
+                            }
+                          });
+                          _persistModelSelection();
+                        },
+                        secondary: CircleAvatar(
+                          radius: 15,
+                          backgroundColor: m.color,
+                          child: Text(m.badgeLetter, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                        ),
+                        title: Text(m.name,
+                            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 13.5)),
+                        subtitle: Text(m.active ? '${providerEnum.displayName} • Active' : '${providerEnum.displayName} • Inactive',
+                            style: TextStyle(
+                                color: m.active ? context.textSecondary : Colors.redAccent.withValues(alpha: 0.8),
+                                fontSize: 11.5)),
+                      );
+                    },
+                  );
+                },
               ),
             ),
             Padding(

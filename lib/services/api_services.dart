@@ -298,8 +298,20 @@ class ApiService{
                 headers: headers,
             );
             if (response.statusCode == 200) {
-                final List<dynamic> data = json.decode(response.body);
-                return data.cast<Map<String, dynamic>>();
+                final decoded = json.decode(response.body);
+                List<dynamic> list = [];
+                if (decoded is List) {
+                    list = decoded;
+                } else if (decoded is Map) {
+                    if (decoded['data'] is List) {
+                        list = decoded['data'];
+                    } else if (decoded['models'] is List) {
+                        list = decoded['models'];
+                    } else if (decoded['llm_models'] is List) {
+                        list = decoded['llm_models'];
+                    }
+                }
+                return list.cast<Map<String, dynamic>>();
             } else {
                 print('Fetch LLM models failed: ${response.statusCode}');
                 print('Error Body: ${response.body}');

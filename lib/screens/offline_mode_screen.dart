@@ -24,6 +24,8 @@ class OfflineModeScreen extends StatefulWidget {
 
 class OfflineModeScreenState extends State<OfflineModeScreen> {
   final _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  bool _showScrollToBottom = false;
   bool _connecting = false;
   bool _connected = false;
   ChatSession? _session;
@@ -32,6 +34,46 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
   TextEditingController? _editController;
 
   final _dummyLocalModels = const ['llama3:8b', 'mistral:7b', 'phi3:mini'];
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.offset;
+    final show = (maxScroll - currentScroll) > 120;
+    if (show != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = show);
+    }
+  }
+
+  void _scrollToBottom({bool animate = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final target = _scrollController.position.maxScrollExtent;
+      if (animate) {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
+    });
+  }
 
   void _notifySession() => widget.onSessionChanged?.call(_session?.id);
 
@@ -52,6 +94,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       _editController = null;
     });
     _notifySession();
+    _scrollToBottom(animate: false);
   }
 
   void _connect() {
@@ -82,6 +125,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       }
     });
     _notifySession();
+    _scrollToBottom();
     _appendAiResponse(prompt: text, attachments: attachments);
   }
 
@@ -109,6 +153,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
         ));
         historyStore.touch(_session!);
       });
+      _scrollToBottom();
     });
   }
 
@@ -190,9 +235,52 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
             subtitle: 'Ollama models',
             onMenuTap: widget.onMenuTap,
           ),
-          Expanded(child: hasMessages ? _buildChatList(context) : _buildSetupState(context)),
+          Expanded(
+            child: Stack(
+              children: [
+                hasMessages ? _buildChatList(context) : _buildSetupState(context),
+                if (hasMessages) _buildScrollToBottomButton(context),
+              ],
+            ),
+          ),
           ChatInputBar(controller: _controller, hint: 'Ask Anything', onSend: _send),
         ],
+      ),
+    );
+  }
+
+  Widget _buildScrollToBottomButton(BuildContext context) {
+    return Positioned(
+      right: 24,
+      bottom: 16,
+      child: AnimatedOpacity(
+        opacity: _showScrollToBottom ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 200),
+        child: IgnorePointer(
+          ignoring: !_showScrollToBottom,
+          child: Material(
+            color: context.surface2,
+            elevation: 4,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => _scrollToBottom(animate: true),
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: context.borderColor, width: 1.2),
+                ),
+                child: const Icon(
+                  Icons.arrow_downward_rounded,
+                  color: AppColors.purple,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -209,6 +297,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
     const claudeBorderLight = Color(0xFFE2DFD6);
 
     return ListView.builder(
+      controller: _scrollController,
       padding: EdgeInsets.symmetric(
         horizontal: screenWidth < 500 ? 12 : 20,
         vertical: 16,

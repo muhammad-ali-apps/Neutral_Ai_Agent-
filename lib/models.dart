@@ -109,7 +109,6 @@ class LlmModel {
     final providerStr = (json['provider'] ?? 'custom').toString();
     final providerEnum = LlmProvider.fromString(providerStr);
 
-    // Parse icon_color if present, otherwise use provider default
     Color modelColor = providerEnum.color;
     if (json['icon_color'] != null && json['icon_color'].toString().isNotEmpty) {
       try {
@@ -118,25 +117,42 @@ class LlmModel {
       } catch (_) {}
     }
 
-    // Handle MongoDB _id field
-    final id = json['_id'] is Map ? json['_id']['\$oid'] ?? json['_id'].toString() : (json['_id'] ?? json['id'] ?? '').toString();
+    final id = json['_id'] is Map
+        ? (json['_id']['\$oid'] ?? json['_id'].toString())
+        : (json['_id'] ?? json['id'] ?? '').toString();
+
+    bool parseBool(dynamic val, {bool defaultValue = true}) {
+      if (val == null) return defaultValue;
+      if (val is bool) return val;
+      if (val is num) return val != 0;
+      if (val is String) {
+        final s = val.trim().toLowerCase();
+        return s == 'true' || s == '1' || s == 'yes';
+      }
+      return defaultValue;
+    }
+
+    List<String> parseTags(dynamic tagsVal) {
+      if (tagsVal == null) return [];
+      if (tagsVal is List) return tagsVal.map((e) => e.toString()).toList();
+      if (tagsVal is String) return tagsVal.split(',').map((e) => e.trim()).toList();
+      return [];
+    }
 
     return LlmModel(
       id: id,
-      name: json['name'] ?? '',
+      name: (json['name'] ?? json['model_name'] ?? '').toString(),
       provider: providerStr,
-      modelCode: json['model_id'] ?? '',
+      modelCode: (json['model_id'] ?? json['model_code'] ?? '').toString(),
       badgeLetter: providerEnum.letter,
       color: modelColor,
-      tags: json['routing_tags'] != null
-          ? List<String>.from(json['routing_tags'])
-          : [],
-      active: json['is_active'] ?? true,
-      apiKey: json['api_key'],
-      endpointUrl: json['endpoint_url'],
-      description: json['description'],
-      iconColor: json['icon_color'],
-      isRouter: json['is_router'] ?? false,
+      tags: parseTags(json['routing_tags'] ?? json['tags']),
+      active: parseBool(json['is_active'], defaultValue: true),
+      apiKey: json['api_key']?.toString(),
+      endpointUrl: json['endpoint_url']?.toString(),
+      description: json['description']?.toString(),
+      iconColor: json['icon_color']?.toString(),
+      isRouter: parseBool(json['is_router'], defaultValue: false),
       temperature: json['temperature'] != null ? double.tryParse(json['temperature'].toString()) : null,
       maxTokens: json['max_tokens'] != null ? int.tryParse(json['max_tokens'].toString()) : null,
     );
@@ -180,7 +196,7 @@ class ModelStore extends ChangeNotifier {
 
     try {
       final result = await ApiService.fetchLlmModels();
-      if (result != null && result.isNotEmpty) {
+      if (result != null) {
         models = result.map((json) => LlmModel.fromJson(json)).toList();
         errorMessage = null;
       }

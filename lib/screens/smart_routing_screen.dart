@@ -22,11 +22,277 @@ class SmartRoutingScreen extends StatefulWidget {
 
 class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   final _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  bool _showScrollToBottom = false;
   bool _thinking = false;
   ChatSession? _session;
 
   int? _editingIndex;
   TextEditingController? _editController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    if (modelStore.models.isEmpty) {
+      modelStore.loadFromApi();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.offset;
+    final show = (maxScroll - currentScroll) > 120;
+    if (show != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = show);
+    }
+  }
+
+  void _scrollToBottom({bool animate = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final target = _scrollController.position.maxScrollExtent;
+      if (animate) {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
+    });
+  }
+
+  void _showActiveModelsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return ListenableBuilder(
+          listenable: modelStore,
+          builder: (context, _) {
+            final activeModels = modelStore.active;
+
+            return Dialog(
+              backgroundColor: context.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(color: context.borderColor),
+              ),
+              child: Container(
+                width: 520,
+                constraints: const BoxConstraints(maxHeight: 600),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.bolt_rounded, color: AppColors.success, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Active AI Models',
+                                style: TextStyle(
+                                  color: context.textPrimary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 17,
+                                ),
+                              ),
+                              Text(
+                                '${activeModels.length} active models available for smart routing',
+                                style: TextStyle(color: context.textSecondary, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          icon: Icon(Icons.close_rounded, color: context.textSecondary),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Divider(color: context.borderColor, height: 1),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: activeModels.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.widgets_outlined, color: context.textSecondary, size: 40),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'No active models found',
+                                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Make sure models are created and set to active.',
+                                    style: TextStyle(color: context.textSecondary, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: activeModels.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 10),
+                              itemBuilder: (context, index) {
+                                final m = activeModels[index];
+                                final providerEnum = LlmProvider.fromString(m.provider);
+                                return Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: context.surface2,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: context.borderColor),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 16,
+                                        backgroundColor: m.color,
+                                        child: Text(
+                                          m.badgeLetter,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    m.name,
+                                                    style: TextStyle(
+                                                      color: context.textPrimary,
+                                                      fontWeight: FontWeight.w600,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                ),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.success.withValues(alpha: 0.12),
+                                                    borderRadius: BorderRadius.circular(10),
+                                                  ),
+                                                  child: const Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      CircleAvatar(radius: 3, backgroundColor: AppColors.success),
+                                                      SizedBox(width: 4),
+                                                      Text(
+                                                        'Active',
+                                                        style: TextStyle(
+                                                          color: AppColors.success,
+                                                          fontSize: 10.5,
+                                                          fontWeight: FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              '${providerEnum.displayName} • ${m.modelCode}',
+                                              style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                                            ),
+                                            if (m.description != null && m.description!.isNotEmpty) ...[
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                m.description!,
+                                                style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                                              ),
+                                            ],
+                                            if (m.tags.isNotEmpty) ...[
+                                              const SizedBox(height: 8),
+                                              Wrap(
+                                                spacing: 6,
+                                                runSpacing: 4,
+                                                children: m.tags.map((tag) {
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.purple.withValues(alpha: 0.1),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Text(
+                                                      '#$tag',
+                                                      style: const TextStyle(
+                                                        color: AppColors.purple,
+                                                        fontSize: 10.5,
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  );
+                                                }).toList(),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                    const SizedBox(height: 16),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: TextButton.styleFrom(
+                          backgroundColor: AppColors.purple,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: const Text('Close', style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   final _suggestions = const [
     'Write a Python function to sort a list',
@@ -55,6 +321,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _editController = null;
     });
     _notifySession();
+    _scrollToBottom(animate: false);
   }
 
   void _send(String text, List<ChatAttachment> attachments) async {
@@ -75,6 +342,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _thinking = true;
     });
     _notifySession();
+    _scrollToBottom();
 
     final response = await ApiService.sendChatMessage(
       prompt: text,
@@ -105,6 +373,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         ));
         historyStore.touch(_session!);
       });
+      _scrollToBottom();
     } else {
       setState(() {
         _thinking = false;
@@ -114,6 +383,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         ));
         historyStore.touch(_session!);
       });
+      _scrollToBottom();
     }
   }
 
@@ -249,27 +519,42 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
             onMenuTap: widget.onMenuTap,
             trailing: ListenableBuilder(
               listenable: modelStore,
-              builder: (context, _) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.12),
+              builder: (context, _) {
+                final count = modelStore.active.length;
+                return InkWell(
                   borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircleAvatar(radius: 3.5, backgroundColor: AppColors.success),
-                    const SizedBox(width: 6),
-                    Text('${modelStore.active.length} models active',
-                        style: const TextStyle(
-                            color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
+                  onTap: () => _showActiveModelsDialog(context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircleAvatar(radius: 3.5, backgroundColor: AppColors.success),
+                        const SizedBox(width: 6),
+                        Text('$count models active',
+                            style: const TextStyle(
+                                color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w600)),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.info_outline_rounded, size: 13, color: AppColors.success),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           Expanded(
-            child: hasMessages ? _buildChatList(context) : _buildEmptyState(context, activeCount),
+            child: Stack(
+              children: [
+                hasMessages ? _buildChatList(context) : _buildEmptyState(context, activeCount),
+                if (hasMessages) _buildScrollToBottomButton(context),
+              ],
+            ),
           ),
           if (_thinking) _buildThinkingBar(context),
           ChatInputBar(
@@ -334,11 +619,48 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     );
   }
 
+  Widget _buildScrollToBottomButton(BuildContext context) {
+    return Positioned(
+      right: 24,
+      bottom: 16,
+      child: AnimatedOpacity(
+        opacity: _showScrollToBottom ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 200),
+        child: IgnorePointer(
+          ignoring: !_showScrollToBottom,
+          child: Material(
+            color: context.surface2,
+            elevation: 4,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => _scrollToBottom(animate: true),
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: context.borderColor, width: 1.2),
+                ),
+                child: const Icon(
+                  Icons.arrow_downward_rounded,
+                  color: AppColors.purple,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
     final isDark = context.isDark;
 
     return ListView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 20),
       itemCount: messages.length,
       itemBuilder: (context, i) {
