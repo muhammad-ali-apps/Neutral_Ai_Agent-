@@ -19,7 +19,7 @@ final navItems = [
 ];
 
 /// Application sidebar with navigation, per-mode history, and account controls.
-class Sidebar extends StatelessWidget {
+class Sidebar extends StatefulWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelect;
   final VoidCallback onAdminTap;
@@ -47,9 +47,32 @@ class Sidebar extends StatelessWidget {
     this.onClose,
   });
 
+  @override
+  State<Sidebar> createState() => _SidebarState();
+}
+
+class _SidebarState extends State<Sidebar> {
+  bool _isAdmin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkUserRole();
+  }
+
+  Future<void> _checkUserRole() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String role = prefs.getString('userRole')?.toLowerCase() ?? '';
+    if (mounted) {
+      setState(() {
+        _isAdmin = (role == 'admin' || role == 'administrator');
+      });
+    }
+  }
+
   ChatMode? get _currentMode {
-    if (adminSelected) return null;
-    switch (selectedIndex) {
+    if (widget.adminSelected) return null;
+    switch (widget.selectedIndex) {
       case 0:
         return ChatMode.smartRouting;
       case 1:
@@ -114,7 +137,7 @@ class Sidebar extends StatelessWidget {
               ],
             ),
           ),
-          if (!adminSelected)
+          if (!widget.adminSelected)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: Material(
@@ -123,8 +146,8 @@ class Sidebar extends StatelessWidget {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(8),
                   onTap: () {
-                    onNewChat();
-                    onClose?.call();
+                    widget.onNewChat();
+                    widget.onClose?.call();
                   },
                   child: const Padding(
                     padding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -150,14 +173,14 @@ class Sidebar extends StatelessWidget {
           const SizedBox(height: 6),
           ...List.generate(navItems.length, (i) {
             final item = navItems[i];
-            final selected = i == selectedIndex && !adminSelected;
+            final selected = i == widget.selectedIndex && !widget.adminSelected;
             return _NavTile(
               icon: item.icon,
               label: item.label,
               selected: selected,
               onTap: () {
-                onSelect(i);
-                onClose?.call();
+                widget.onSelect(i);
+                widget.onClose?.call();
               },
             );
           }),
@@ -179,10 +202,10 @@ class Sidebar extends StatelessWidget {
             Expanded(
               child: _HistoryList(
                 mode: mode,
-                activeSessionId: activeSessionId,
+                activeSessionId: widget.activeSessionId,
                 onSelect: (s) {
-                  onSelectSession(s);
-                  onClose?.call();
+                  widget.onSelectSession(s);
+                  widget.onClose?.call();
                 },
               ),
             ),
@@ -191,28 +214,28 @@ class Sidebar extends StatelessWidget {
           Divider(color: context.borderColor, height: 1),
           const SizedBox(height: 4),
           _NavTile(
-            icon: isDarkMode ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined,
-            label: isDarkMode ? 'Light Mode' : 'Dark Mode',
+            icon: widget.isDarkMode ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined,
+            label: widget.isDarkMode ? 'Light Mode' : 'Dark Mode',
             selected: false,
-            onTap: onToggleTheme,
+            onTap: widget.onToggleTheme,
           ),
-          _NavTile(
-            icon: Icons.settings_outlined,
-            label: 'Admin Panel',
-            selected: adminSelected,
-            onTap: () {
-              context.go('/admin-panel');
-              onClose?.call();
-            },
-          ),
+          if (_isAdmin)
+            _NavTile(
+              icon: Icons.settings_outlined,
+              label: 'Admin Panel',
+              selected: widget.adminSelected,
+              onTap: () {
+                context.go('/admin-panel');
+                widget.onClose?.call();
+              },
+            ),
           Divider(color: context.borderColor, height: 1),
-          _AccountTile(onLogout: onLogout),
+          _AccountTile(onLogout: widget.onLogout),
           const SizedBox(height: 4),
         ],
       ),
     );
   }
-
 }
 
 /// Compact history list scoped to one chat mode.

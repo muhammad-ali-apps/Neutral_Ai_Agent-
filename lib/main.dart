@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'app_theme.dart';
 import 'package:go_router/go_router.dart';
 import 'services/api_services.dart';
@@ -51,6 +52,15 @@ class _OrbitAppState extends State<OrbitApp> {
       // 4. Logic: Agar logged in hai, aur phir bhi login page kholne ki koshish kare..
       if (isLoggedIn && (isGoingToLogin || isGoingToSignup)) {
         return '/home'; // ..to usay Home par bhej do!
+      }
+      // 5. Logic: Admin Panel access control check
+      if (isLoggedIn && state.matchedLocation == '/admin-panel') {
+        final prefs = await SharedPreferences.getInstance();
+        final String role = prefs.getString('userRole')?.toLowerCase() ?? '';
+        final bool isAdmin = (role == 'admin' || role == 'administrator');
+        if (!isAdmin) {
+          return '/home';
+        }
       }
       // Agar sab theek hai, to jahan ja raha hai janay do (return null)
       return null; 

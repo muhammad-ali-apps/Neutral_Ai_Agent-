@@ -203,6 +203,16 @@ class ApiService{
                 String token = data['access_token'];
                 SharedPreferences prefs = await SharedPreferences.getInstance();
                 await prefs.setString('token', token);
+
+                var user = data['user'] ?? data;
+                if (user != null) {
+                    if (user['name'] != null) await prefs.setString('userName', user['name'].toString());
+                    if (user['email'] != null) await prefs.setString('userEmail', user['email'].toString());
+                    String? role = user['role']?.toString() ?? data['role']?.toString();
+                    if (role != null) {
+                        await prefs.setString('userRole', role);
+                    }
+                }
                 return true;
             }else{
                 print('User login failed: ${response.statusCode}');
@@ -230,8 +240,13 @@ class ApiService{
         if (response.statusCode == 200 || response.statusCode == 201) {
             var responseData = json.decode(response.body);
             final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('userName', responseData['name']);
-            await prefs.setString('userEmail', responseData['email']);
+            var user = responseData['user'] ?? responseData;
+            if (user['name'] != null) await prefs.setString('userName', user['name'].toString());
+            if (user['email'] != null) await prefs.setString('userEmail', user['email'].toString());
+            String? role = user['role']?.toString() ?? responseData['role']?.toString();
+            if (role != null) {
+                await prefs.setString('userRole', role);
+            }
             print('User is logged in: ${response.body}');
             return true;
         } else {
@@ -260,6 +275,7 @@ class ApiService{
                 await prefs.remove('token');
                 await prefs.remove('userName');
                 await prefs.remove('userEmail');
+                await prefs.remove('userRole');
                 return true;
             } else {
                 print('Logout failed: ${response.body}');
