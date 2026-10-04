@@ -48,22 +48,14 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
 
   void _scrollToMessage(int index) {
     if (index < 0 || index >= _messageKeys.length) return;
-
-    void alignToTarget() {
-      final ctx = _messageKeys[index].currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.fastOutSlowIn,
-          alignment: 0.0,
-        );
-      }
-    }
-
     final ctx = _messageKeys[index].currentContext;
     if (ctx != null) {
-      alignToTarget();
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.fastOutSlowIn,
+        alignment: 0.0,
+      );
     } else if (_scrollController.hasClients) {
       final totalMessages = _session?.messages.length ?? 1;
       final ratio = index / (totalMessages > 1 ? totalMessages - 1 : 1);
@@ -73,9 +65,15 @@ class OfflineModeScreenState extends State<OfflineModeScreen> {
       _scrollController.jumpTo(targetOffset);
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          alignToTarget();
-        });
+        final delayedCtx = _messageKeys[index].currentContext;
+        if (delayedCtx != null) {
+          Scrollable.ensureVisible(
+            delayedCtx,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: 0.0,
+          );
+        }
       });
     }
   }
