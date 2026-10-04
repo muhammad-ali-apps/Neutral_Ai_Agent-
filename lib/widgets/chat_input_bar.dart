@@ -62,7 +62,6 @@ class PickedAttachment {
 class ChatInputBar extends StatefulWidget {
   final TextEditingController controller;
   final String hint;
-  final bool isLoading;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
 
   const ChatInputBar({
@@ -70,7 +69,6 @@ class ChatInputBar extends StatefulWidget {
     required this.controller,
     required this.onSend,
     this.hint = 'Ask anything...',
-    this.isLoading = false,
   });
 
   @override
@@ -82,9 +80,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
   bool _busy = false;
 
   String get _effectiveHint {
-    if (widget.isLoading) {
-      return 'AI is responding...';
-    }
     if (_attachments.isNotEmpty) {
       final last = _attachments.last;
       if (last.fileType == 'screenshot') {
@@ -99,7 +94,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
   }
 
   void _submit() {
-    if (widget.isLoading) return;
     final text = widget.controller.text.trim();
     if (text.isEmpty && _attachments.isEmpty) return;
 
@@ -358,9 +352,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: widget.controller,
                     builder: (context, value, _) {
-                      final canSend = (value.text.trim().isNotEmpty ||
-                              _attachments.isNotEmpty) &&
-                          !widget.isLoading;
+                      final canSend = value.text.trim().isNotEmpty ||
+                          _attachments.isNotEmpty;
                       return AnimatedContainer(
                         duration: const Duration(milliseconds: 120),
                         width: 32,
@@ -373,32 +366,17 @@ class _ChatInputBarState extends State<ChatInputBar> {
                                   : Colors.black12),
                           shape: BoxShape.circle,
                         ),
-                        child: widget.isLoading
-                            ? Center(
-                                child: SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: context.isDark
-                                        ? Colors.white70
-                                        : Colors.black87,
-                                  ),
-                                ),
-                              )
-                            : IconButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: canSend ? _submit : null,
-                                icon: Icon(
-                                  Icons.arrow_upward_rounded,
-                                  color: canSend
-                                      ? (context.isDark
-                                          ? Colors.black
-                                          : Colors.white)
-                                      : context.textSecondary,
-                                  size: 18,
-                                ),
-                              ),
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: canSend ? _submit : null,
+                          icon: Icon(
+                            Icons.arrow_upward_rounded,
+                            color: canSend
+                                ? (context.isDark ? Colors.black : Colors.white)
+                                : context.textSecondary,
+                            size: 18,
+                          ),
+                        ),
                       );
                     },
                   ),
