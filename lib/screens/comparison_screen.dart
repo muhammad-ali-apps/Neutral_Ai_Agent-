@@ -30,6 +30,10 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   ChatSession? _session;
   bool _thinking = false;
 
+  final Set<String> _collapsedContainers = <String>{};
+  final Set<String> _expandedContainers = <String>{};
+  final Set<String> _thinkingCardKeys = <String>{};
+
   int? _editingIndex;
   TextEditingController? _editController;
 
@@ -132,6 +136,9 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _editingIndex = null;
       _editController = null;
       _thinking = false;
+      _collapsedContainers.clear();
+      _expandedContainers.clear();
+      _thinkingCardKeys.clear();
     });
     _notifySession();
   }
@@ -143,6 +150,9 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _editingIndex = null;
       _editController = null;
       _thinking = false;
+      _collapsedContainers.clear();
+      _expandedContainers.clear();
+      _thinkingCardKeys.clear();
     });
     _notifySession();
     _scrollToBottom(animate: false);
@@ -215,6 +225,10 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               latencyMs: latency,
               tokenUsage: tokenUsage,
               status: status,
+              versions: [reply],
+              versionLatencies: [latency],
+              versionTokenUsages: [tokenUsage],
+              currentVersionIndex: 0,
             ));
           }
         } else {
@@ -320,6 +334,10 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                 latencyMs: latency,
                 tokenUsage: tokenUsage,
                 status: status,
+                versions: [reply],
+                versionLatencies: [latency],
+                versionTokenUsages: [tokenUsage],
+                currentVersionIndex: 0,
               ),
             );
           }
@@ -333,8 +351,12 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     }
   }
 
-  void _regenerateAt(int index) async {
+  /// Single model per-container regeneration.
+  /// Only regenerates the targeted model without touching any other model in that turn!
+  void _regenerateSingleModel(int index, ChatMessage msg) async {
     if (_session == null || index < 1) return;
+
+    // Find the prompt associated with this turn
     String prompt = '';
     for (int i = index - 1; i >= 0; i--) {
       if (_session!.messages[i].isUser) {
@@ -344,61 +366,73 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     }
     if (prompt.isEmpty) return;
 
-    final modelsToUse = _selectedModels;
-    final selectedIds = modelsToUse.map((m) => m.id).toList();
+    final targetModelName = msg.modelName;
+    final matchingModel = modelStore.models.where((e) => e.name == targetModelName).toList();
+    final modelId = matchingModel.isNotEmpty ? matchingModel.first.id : (_selected.isNotEmpty ? _selected.first : '');
+    if (modelId.isEmpty) return;
+
+    final cardKey = '${index}_$targetModelName';
 
     setState(() {
-      _thinking = true;
+      _thinkingCardKeys.add(cardKey);
     });
 
     final response = await ApiService.sendChatMessage(
       prompt: prompt,
       sessionId: _session?.backendSessionId,
       mode: 'compare',
-      selectedModels: selectedIds,
+      selectedModels: [modelId],
     );
 
-    if (!mounted || _session == null) return;
+    if (!mounted || _session == null) {
+      setState(() => _thinkingCardKeys.remove(cardKey));
+      return;
+    }
 
     if (response != null) {
       final responsesList = response['responses'] as List<dynamic>? ?? [];
+      final matched = responsesList.isNotEmpty
+          ? responsesList.firstWhere(
+              (r) => r['model_name'] == targetModelName,
+              orElse: () => responsesList.first,
+            )
+          : null;
 
-      setState(() {
-        _thinking = false;
-        if (responsesList.isNotEmpty && index < _session!.messages.length) {
-          final targetModelName = _session!.messages[index].modelName;
-          final matched = responsesList.firstWhere(
-            (r) => r['model_name'] == targetModelName,
-            orElse: () => responsesList.first,
-          );
+      if (matched != null) {
+        final status = matched['status']?.toString() ?? 'success';
+        final newReply = (status == 'success' && matched['reply'] != null)
+            ? matched['reply'].toString()
+            : (matched['error']?.toString() ?? 'Model returned empty response');
+        final newLatency = matched['latency_ms'] != null
+            ? double.tryParse(matched['latency_ms'].toString())
+            : null;
+        final newTokenUsage = matched['token_usage'] is Map
+            ? Map<String, dynamic>.from(matched['token_usage'])
+            : null;
 
-          final modelName = matched['model_name']?.toString() ?? 'AI Model';
-          final status = matched['status']?.toString() ?? 'success';
-          final reply = (status == 'success' && matched['reply'] != null)
-              ? matched['reply'].toString()
-              : (matched['error']?.toString() ?? 'Model returned empty response');
-          final latency = matched['latency_ms'] != null
-              ? double.tryParse(matched['latency_ms'].toString())
-              : null;
-          final tokenUsage = matched['token_usage'] is Map
-              ? Map<String, dynamic>.from(matched['token_usage'])
-              : null;
+        setState(() {
+          msg.versions ??= [msg.text];
+          msg.versionLatencies ??= [msg.latencyMs];
+          msg.versionTokenUsages ??= [msg.tokenUsage];
 
-          _session!.messages[index] = ChatMessage(
-            isUser: false,
-            modelName: modelName,
-            text: reply,
-            latencyMs: latency,
-            tokenUsage: tokenUsage,
-            status: status,
-          );
-        }
+          msg.versions!.add(newReply);
+          msg.versionLatencies!.add(newLatency);
+          msg.versionTokenUsages!.add(newTokenUsage);
+
+          msg.currentVersionIndex = msg.versions!.length - 1;
+          msg.text = newReply;
+          msg.latencyMs = newLatency;
+          msg.tokenUsage = newTokenUsage;
+          msg.status = status;
+
+          _thinkingCardKeys.remove(cardKey);
+        });
         historyStore.touch(_session!);
-      });
+      } else {
+        setState(() => _thinkingCardKeys.remove(cardKey));
+      }
     } else {
-      setState(() {
-        _thinking = false;
-      });
+      setState(() => _thinkingCardKeys.remove(cardKey));
     }
   }
 
@@ -457,7 +491,6 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               ],
             ),
           ),
-          if (_thinking) _buildThinkingBar(context),
           ChatInputBar(
             controller: _controller,
             hint: _selectedModels.isEmpty
@@ -567,26 +600,6 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     );
   }
 
-  Widget _buildThinkingBar(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'Comparing responses across ${_selectedModels.length} AI models in real-time...',
-            style: TextStyle(color: context.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w500),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildScrollToBottomButton(BuildContext context) {
     return Positioned(
       right: 24,
@@ -656,6 +669,11 @@ class ComparisonScreenState extends State<ComparisonScreen> {
         widgets.add(_responseGroup(context, group));
       }
     }
+
+    if (_thinking) {
+      widgets.add(_thinkingResponseGroup(context));
+    }
+
     return ListView(
       controller: _scrollController,
       padding: EdgeInsets.symmetric(
@@ -722,101 +740,574 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     );
   }
 
-  Widget _responseGroup(BuildContext context, List<MapEntry<int, ChatMessage>> group) {
+  Widget _thinkingResponseGroup(BuildContext context) {
+    final selected = _selectedModels;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: LayoutBuilder(builder: (context, constraints) {
-        final wide = constraints.maxWidth > 640;
-        final cards = group.map((entry) {
-          final index = entry.key;
-          final m = entry.value;
-          final model = modelStore.models.where((e) => e.name == m.modelName).toList();
-          final color = model.isNotEmpty ? model.first.color : AppColors.purple;
-          final letter = model.isNotEmpty ? model.first.badgeLetter : '?';
-          final isError = m.status == 'error';
-
-          return Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: context.surface2,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isError ? Colors.redAccent.withValues(alpha: 0.5) : context.borderColor,
+      padding: const EdgeInsets.only(bottom: 16, top: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: selected.map((m) {
+            return Container(
+              width: 360,
+              height: 200,
+              margin: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: context.surface2,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.purple.withValues(alpha: 0.35), width: 1.2),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 11,
-                      backgroundColor: color,
-                      child: Text(letter,
-                          style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(m.modelName ?? 'AI Model',
-                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 13.5)),
-                    ),
-                    if (m.latencyMs != null) ...[
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 11,
+                        backgroundColor: m.color,
+                        child: Text(
+                          m.badgeLetter,
+                          style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          m.name,
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 13.5),
+                        ),
+                      ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: AppColors.purple.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Row(
+                        child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.bolt_rounded, size: 11, color: AppColors.purple),
-                            const SizedBox(width: 2),
+                            SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: CircularProgressIndicator(strokeWidth: 1.8, color: AppColors.purple),
+                            ),
+                            SizedBox(width: 6),
                             Text(
-                              m.latencyMs! >= 1000
-                                  ? '${(m.latencyMs! / 1000).toStringAsFixed(2)}s'
-                                  : '${m.latencyMs!.toStringAsFixed(0)}ms',
-                              style: const TextStyle(color: AppColors.purple, fontSize: 10.5, fontWeight: FontWeight.w600),
+                              'Thinking...',
+                              style: TextStyle(color: AppColors.purple, fontSize: 11, fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 6),
                     ],
-                    if (m.tokenUsage != null && m.tokenUsage!['total_tokens'] != null) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: context.borderColor,
-                          borderRadius: BorderRadius.circular(10),
+                  ),
+                  const Divider(height: 18),
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2.0, color: AppColors.purple),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Thinking...',
+                            style: TextStyle(
+                              color: context.textSecondary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVersionSwitcher(BuildContext context, ChatMessage m) {
+    if (m.versions == null || m.versions!.length <= 1) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: context.borderColor.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: m.currentVersionIndex > 0
+                ? () {
+                    setState(() {
+                      m.currentVersionIndex--;
+                      m.text = m.versions![m.currentVersionIndex];
+                      if (m.versionLatencies != null && m.currentVersionIndex < m.versionLatencies!.length) {
+                        m.latencyMs = m.versionLatencies![m.currentVersionIndex];
+                      }
+                      if (m.versionTokenUsages != null && m.currentVersionIndex < m.versionTokenUsages!.length) {
+                        m.tokenUsage = m.versionTokenUsages![m.currentVersionIndex];
+                      }
+                    });
+                  }
+                : null,
+            child: Icon(
+              Icons.chevron_left_rounded,
+              size: 16,
+              color: m.currentVersionIndex > 0
+                  ? context.textPrimary
+                  : context.textSecondary.withValues(alpha: 0.3),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              '${m.currentVersionIndex + 1}/${m.versions!.length}',
+              style: TextStyle(color: context.textPrimary, fontSize: 10.5, fontWeight: FontWeight.w600),
+            ),
+          ),
+          InkWell(
+            onTap: m.currentVersionIndex < m.versions!.length - 1
+                ? () {
+                    setState(() {
+                      m.currentVersionIndex++;
+                      m.text = m.versions![m.currentVersionIndex];
+                      if (m.versionLatencies != null && m.currentVersionIndex < m.versionLatencies!.length) {
+                        m.latencyMs = m.versionLatencies![m.currentVersionIndex];
+                      }
+                      if (m.versionTokenUsages != null && m.currentVersionIndex < m.versionTokenUsages!.length) {
+                        m.tokenUsage = m.versionTokenUsages![m.currentVersionIndex];
+                      }
+                    });
+                  }
+                : null,
+            child: Icon(
+              Icons.chevron_right_rounded,
+              size: 16,
+              color: m.currentVersionIndex < m.versions!.length - 1
+                  ? context.textPrimary
+                  : context.textSecondary.withValues(alpha: 0.3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _responseGroup(BuildContext context, List<MapEntry<int, ChatMessage>> group) {
+    final isDark = context.isDark;
+
+    // Check if any model container in this turn is expanded in focus mode
+    MapEntry<int, ChatMessage>? expandedEntry;
+    for (final entry in group) {
+      final key = '${entry.key}_${entry.value.modelName}';
+      if (_expandedContainers.contains(key)) {
+        expandedEntry = entry;
+        break;
+      }
+    }
+
+    // IF A MODEL IS EXPANDED: Show ONLY that model full width & hide all other models!
+    if (expandedEntry != null) {
+      final index = expandedEntry.key;
+      final m = expandedEntry.value;
+      final cardKey = '${index}_${m.modelName}';
+      final isThinking = _thinkingCardKeys.contains(cardKey);
+
+      final model = modelStore.models.where((e) => e.name == m.modelName).toList();
+      final color = model.isNotEmpty ? model.first.color : AppColors.purple;
+      final letter = model.isNotEmpty ? model.first.badgeLetter : '?';
+      final isError = m.status == 'error';
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          width: double.infinity,
+          height: 580.0,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: context.surface2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isError
+                  ? Colors.redAccent.withValues(alpha: 0.5)
+                  : AppColors.purple.withValues(alpha: 0.6),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 12,
+                    backgroundColor: color,
+                    child: Text(
+                      letter,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      m.modelName ?? 'AI Model',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  
+                  // Version Switcher < 1/2 >
+                  if (m.versions != null && m.versions!.length > 1) ...[
+                    _buildVersionSwitcher(context, m),
+                    const SizedBox(width: 8),
+                  ],
+
+                  if (m.latencyMs != null) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.purple.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.bolt_rounded, size: 11, color: AppColors.purple),
+                          const SizedBox(width: 2),
+                          Text(
+                            m.latencyMs! >= 1000
+                                ? '${(m.latencyMs! / 1000).toStringAsFixed(2)}s'
+                                : '${m.latencyMs!.toStringAsFixed(0)}ms',
+                            style: const TextStyle(
+                              color: AppColors.purple,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+
+                  // Restore Height Button (Unhides other models and restores horizontal view)
+                  IconButton(
+                    tooltip: 'Restore height',
+                    onPressed: () {
+                      setState(() {
+                        _expandedContainers.remove(cardKey);
+                      });
+                    },
+                    iconSize: 18,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    icon: const Icon(
+                      Icons.fullscreen_exit_rounded,
+                      color: AppColors.purple,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 16),
+
+              Expanded(
+                child: isThinking
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.purple),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Regenerating response for ${m.modelName}...',
+                              style: TextStyle(
+                                color: context.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
+                      )
+                    : Scrollbar(
+                        child: SingleChildScrollView(
+                          child: FormattedMessageView(
+                            text: m.text,
+                            isUser: false,
+                            textColor: context.textPrimary,
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 4),
+              AssistantMessageActions(
+                onCopy: () => _copy(m.text),
+                onRegenerate: () => _regenerateSingleModel(index, m),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Normal Horizontal Scrollable Cards view showing all selected models side-by-side
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: group.map((entry) {
+            final index = entry.key;
+            final m = entry.value;
+            final cardKey = '${index}_${m.modelName}';
+
+            final isCollapsed = _collapsedContainers.contains(cardKey);
+            final isThinking = _thinkingCardKeys.contains(cardKey);
+
+            final model = modelStore.models.where((e) => e.name == m.modelName).toList();
+            final color = model.isNotEmpty ? model.first.color : AppColors.purple;
+            final letter = model.isNotEmpty ? model.first.badgeLetter : '?';
+            final isError = m.status == 'error';
+
+            const double cardWidth = 360.0;
+            final double cardHeight = isCollapsed ? 54.0 : 380.0;
+
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              width: cardWidth,
+              height: cardHeight,
+              margin: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: context.surface2,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isError
+                      ? Colors.redAccent.withValues(alpha: 0.5)
+                      : (isThinking
+                          ? AppColors.purple.withValues(alpha: 0.5)
+                          : context.borderColor),
+                  width: isThinking ? 1.4 : 1.0,
+                ),
+                boxShadow: [
+                  if (!isCollapsed)
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 11,
+                        backgroundColor: color,
                         child: Text(
-                          '${m.tokenUsage!['total_tokens']} tok',
-                          style: TextStyle(color: context.textSecondary, fontSize: 10.5, fontWeight: FontWeight.w500),
+                          letter,
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          m.modelName ?? 'AI Model',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ),
+                      
+                      // Version Switcher < 1/2 >
+                      if (!isCollapsed && m.versions != null && m.versions!.length > 1) ...[
+                        _buildVersionSwitcher(context, m),
+                        const SizedBox(width: 4),
+                      ],
+
+                      if (!isCollapsed) ...[
+                        if (m.latencyMs != null) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.purple.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.bolt_rounded, size: 10, color: AppColors.purple),
+                                const SizedBox(width: 2),
+                                Text(
+                                  m.latencyMs! >= 1000
+                                      ? '${(m.latencyMs! / 1000).toStringAsFixed(2)}s'
+                                      : '${m.latencyMs!.toStringAsFixed(0)}ms',
+                                  style: const TextStyle(
+                                    color: AppColors.purple,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        if (m.tokenUsage != null && m.tokenUsage!['total_tokens'] != null) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: context.borderColor,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${m.tokenUsage!['total_tokens']} t',
+                              style: TextStyle(
+                                color: context.textSecondary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                      ],
+
+                      // Expand Height Button (Hides all other models and expands this model to full view)
+                      if (!isCollapsed)
+                        IconButton(
+                          tooltip: 'Expand height',
+                          onPressed: () {
+                            setState(() {
+                              _expandedContainers.add(cardKey);
+                            });
+                          },
+                          iconSize: 16,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                          icon: Icon(
+                            Icons.fullscreen_rounded,
+                            color: context.textSecondary,
+                          ),
+                        ),
+
+                      // Unexpand / Collapse Toggle Button
+                      IconButton(
+                        tooltip: isCollapsed ? 'Expand response' : 'Collapse response',
+                        onPressed: () {
+                          setState(() {
+                            if (isCollapsed) {
+                              _collapsedContainers.remove(cardKey);
+                            } else {
+                              _collapsedContainers.add(cardKey);
+                            }
+                          });
+                        },
+                        iconSize: 18,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                        icon: Icon(
+                          isCollapsed ? Icons.keyboard_arrow_down_rounded : Icons.keyboard_arrow_up_rounded,
+                          color: context.textSecondary,
                         ),
                       ),
                     ],
+                  ),
+                  if (!isCollapsed) ...[
+                    const Divider(height: 14),
+                    Expanded(
+                      child: isThinking
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(strokeWidth: 2.0, color: AppColors.purple),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Regenerating response...',
+                                    style: TextStyle(
+                                      color: context.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Scrollbar(
+                              child: SingleChildScrollView(
+                                child: FormattedMessageView(
+                                  text: m.text,
+                                  isUser: false,
+                                  textColor: context.textPrimary,
+                                ),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 4),
+                    AssistantMessageActions(
+                      onCopy: () => _copy(m.text),
+                      onRegenerate: () => _regenerateSingleModel(index, m),
+                    ),
                   ],
-                ),
-                const Divider(height: 18),
-                FormattedMessageView(text: m.text, isUser: false, textColor: context.textPrimary),
-                const SizedBox(height: 6),
-                AssistantMessageActions(onCopy: () => _copy(m.text), onRegenerate: () => _regenerateAt(index)),
-              ],
-            ),
-          );
-        }).toList();
-
-        if (wide) {
-          return Wrap(
-            spacing: 14,
-            runSpacing: 14,
-            children: [for (final c in cards) SizedBox(width: (constraints.maxWidth - 14) / 2, child: c)],
-          );
-        }
-        return Column(
-            children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 12), child: c)).toList());
-      }),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
     );
   }
 
