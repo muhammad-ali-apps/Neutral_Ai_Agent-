@@ -387,10 +387,6 @@ class ChatMessage {
   double? latencyMs;
   Map<String, dynamic>? tokenUsage;
   String? status;
-  List<String>? versions;
-  List<double?>? versionLatencies;
-  List<Map<String, dynamic>?>? versionTokenUsages;
-  int currentVersionIndex;
 
   ChatMessage({
     required this.isUser,
@@ -402,10 +398,6 @@ class ChatMessage {
     this.latencyMs,
     this.tokenUsage,
     this.status,
-    this.versions,
-    this.versionLatencies,
-    this.versionTokenUsages,
-    this.currentVersionIndex = 0,
   });
 }
 
