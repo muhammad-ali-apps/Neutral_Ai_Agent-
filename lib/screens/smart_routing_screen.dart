@@ -9,6 +9,7 @@ import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
+import '../services/attachment_processor.dart';
 
 /// Smart Routing screen — routes prompts to the best available model.
 class SmartRoutingScreen extends StatefulWidget {
@@ -325,7 +326,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   }
 
   void _send(String text, List<ChatAttachment> attachments) async {
-    if (text.trim().isEmpty) return;
+    if (text.trim().isEmpty && attachments.isEmpty) return;
     setState(() {
       _session ??= ChatSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -344,9 +345,11 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     _notifySession();
     _scrollToBottom();
 
+    final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(text, attachments);
     final response = await ApiService.sendChatMessage(
-      prompt: text,
+      prompt: enrichedPrompt,
       sessionId: _session?.backendSessionId,
+      attachments: attachments,
     );
 
     if (!mounted || _session == null) return;
@@ -418,9 +421,12 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     });
     historyStore.touch(_session!);
 
+    final messageAttachments = _session!.messages[index].attachments;
+    final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(newText, messageAttachments);
     final response = await ApiService.sendChatMessage(
-      prompt: newText,
+      prompt: enrichedPrompt,
       sessionId: _session?.backendSessionId,
+      attachments: messageAttachments,
     );
 
     if (!mounted || _session == null) return;
@@ -461,16 +467,20 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
 
   void _regenerateAt(int index) async {
     if (_session == null || index < 1) return;
-    final userPrompt = _session!.messages[index - 1].text;
-    if (userPrompt.isEmpty) return;
+    final userMessage = _session!.messages[index - 1];
+    final userPrompt = userMessage.text;
+    final messageAttachments = userMessage.attachments;
+    if (userPrompt.isEmpty && messageAttachments.isEmpty) return;
 
     setState(() {
       _thinking = true;
     });
 
+    final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(userPrompt, messageAttachments);
     final response = await ApiService.sendChatMessage(
-      prompt: userPrompt,
+      prompt: enrichedPrompt,
       sessionId: _session?.backendSessionId,
+      attachments: messageAttachments,
     );
 
     if (!mounted || _session == null) return;

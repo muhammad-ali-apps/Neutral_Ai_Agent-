@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models.dart';
 import '../services/api_services.dart';
+import '../services/model_download_manager.dart';
 import '../screens/admin_panel_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/comparison_screen.dart';
@@ -35,11 +37,61 @@ class _HomeShellState extends State<HomeShell> {
   final _comparisonKey = GlobalKey<ComparisonScreenState>();
   final _offlineKey = GlobalKey<OfflineModeScreenState>();
 
+  StreamSubscription? _downloadCompletedSub;
+  StreamSubscription? _downloadErrorSub;
+
   @override
   void initState() {
     super.initState();
     modelStore.loadFromApi();
     historyStore.loadFromApi();
+
+    _downloadCompletedSub = modelDownloadManager.onModelCompleted.listen((modelId) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Model "$modelId" downloaded successfully! Ready for offline use.'),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Open Offline',
+            textColor: Colors.white,
+            onPressed: () {
+              setState(() {
+                _index = 2;
+                _adminSelected = false;
+              });
+            },
+          ),
+        ),
+      );
+    });
+
+    _downloadErrorSub = modelDownloadManager.onModelError.listen((err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Download failed for ${err['modelId']}: ${err['error']}'),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _downloadCompletedSub?.cancel();
+    _downloadErrorSub?.cancel();
+    super.dispose();
   }
 
   /// Tracks the active session id per mode so the Sidebar can highlight it.
@@ -69,32 +121,26 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _currentScreen({VoidCallback? onMenuTap}) {
     if (_adminSelected) return AdminPanelScreen(onMenuTap: onMenuTap);
-    switch (_index) {
-      case 0:
-        return SmartRoutingScreen(
+    return IndexedStack(
+      index: _index.clamp(0, 2),
+      children: [
+        SmartRoutingScreen(
           key: _smartKey,
           onMenuTap: onMenuTap,
           onSessionChanged: (id) => setState(() => _activeSessionIds[ChatMode.smartRouting] = id),
-        );
-      case 1:
-        return ComparisonScreen(
+        ),
+        ComparisonScreen(
           key: _comparisonKey,
           onMenuTap: onMenuTap,
           onSessionChanged: (id) => setState(() => _activeSessionIds[ChatMode.comparison] = id),
-        );
-      case 2:
-        return OfflineModeScreen(
+        ),
+        OfflineModeScreen(
           key: _offlineKey,
           onMenuTap: onMenuTap,
           onSessionChanged: (id) => setState(() => _activeSessionIds[ChatMode.offline] = id),
-        );
-      default:
-        return SmartRoutingScreen(
-          key: _smartKey,
-          onMenuTap: onMenuTap,
-          onSessionChanged: (id) => setState(() => _activeSessionIds[ChatMode.smartRouting] = id),
-        );
-    }
+        ),
+      ],
+    );
   }
 
   void _newChat() {

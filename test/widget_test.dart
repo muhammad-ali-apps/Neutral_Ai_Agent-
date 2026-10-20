@@ -8,13 +8,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// import 'package:neural/main.dart';
-import 'package:neuroroute_ui/main.dart';
+import 'package:orbit_ui/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  testWidgets('App loads smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const NeuroRouteApp());
+    await tester.pumpWidget(const OrbitApp());
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);

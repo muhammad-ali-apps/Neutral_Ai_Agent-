@@ -10,6 +10,7 @@ import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
 import '../widgets/formatted_message_view.dart';
+import '../services/attachment_processor.dart';
 
 /// Comparison screen — live side-by-side model comparison backed by dynamic APIs.
 class ComparisonScreen extends StatefulWidget {
@@ -185,11 +186,13 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     _notifySession();
     _scrollToBottom();
 
+    final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(text, attachments);
     final response = await ApiService.sendChatMessage(
-      prompt: text,
+      prompt: enrichedPrompt,
       sessionId: _session?.backendSessionId,
       mode: 'compare',
       selectedModels: selectedIds,
+      attachments: attachments,
     );
 
     if (!mounted || _session == null) return;
@@ -291,11 +294,14 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     });
     historyStore.touch(_session!);
 
+    final messageAttachments = _session!.messages[index].attachments;
+    final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(newText, messageAttachments);
     final response = await ApiService.sendChatMessage(
-      prompt: newText,
+      prompt: enrichedPrompt,
       sessionId: _session?.backendSessionId,
       mode: 'compare',
       selectedModels: selectedIds,
+      attachments: messageAttachments,
     );
 
     if (!mounted || _session == null) return;
@@ -356,15 +362,17 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   void _regenerateSingleModel(int index, ChatMessage msg) async {
     if (_session == null || index < 1) return;
 
-    // Find the prompt associated with this turn
+    // Find the prompt and attachments associated with this turn
     String prompt = '';
+    List<ChatAttachment> messageAttachments = [];
     for (int i = index - 1; i >= 0; i--) {
       if (_session!.messages[i].isUser) {
         prompt = _session!.messages[i].text;
+        messageAttachments = _session!.messages[i].attachments;
         break;
       }
     }
-    if (prompt.isEmpty) return;
+    if (prompt.isEmpty && messageAttachments.isEmpty) return;
 
     final targetModelName = msg.modelName;
     final matchingModel = modelStore.models.where((e) => e.name == targetModelName).toList();
@@ -377,11 +385,13 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _thinkingCardKeys.add(cardKey);
     });
 
+    final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(prompt, messageAttachments);
     final response = await ApiService.sendChatMessage(
-      prompt: prompt,
+      prompt: enrichedPrompt,
       sessionId: _session?.backendSessionId,
       mode: 'compare',
       selectedModels: [modelId],
+      attachments: messageAttachments,
     );
 
     if (!mounted || _session == null) {

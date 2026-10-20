@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models.dart';
+import 'attachment_processor.dart';
 
 /// Cleans raw AI response text to eliminate unwanted brackets, Python tuple syntax, 
 /// stringified JSON/dicts, leading/trailing JSON noise (like `,{`), quotes, escaped characters,
@@ -439,21 +441,34 @@ class ApiService{
 
     // ─── Chat API ───
 
-    /// POST /api/chat/send — send prompt in smart routing or comparison mode.
+    /// POST /api/chat/send — send prompt in smart routing or comparison mode with image/attachment support.
     static Future<Map<String, dynamic>?> sendChatMessage({
         required String prompt,
         String? sessionId,
         String mode = 'smart',
         List<String>? selectedModels,
+        List<ChatAttachment>? attachments,
     }) async {
         try {
             final headers = await _authHeaders();
+
+            // Extract base64 images and structured attachment payloads
+            final List<String> base64Images = [];
+            final List<Map<String, dynamic>> attachmentsPayload = [];
+
+            if (attachments != null && attachments.isNotEmpty) {
+                base64Images.addAll(AttachmentProcessor.extractBase64Images(attachments));
+                attachmentsPayload.addAll(AttachmentProcessor.buildAttachmentsPayload(attachments));
+            }
+
             final bodyMap = <String, dynamic>{
                 'prompt': prompt,
                 'mode': mode,
                 if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
                 if (mode == 'compare' && selectedModels != null && selectedModels.isNotEmpty)
                     'selected_models': selectedModels,
+                if (base64Images.isNotEmpty) 'images': base64Images,
+                if (attachmentsPayload.isNotEmpty) 'attachments': attachmentsPayload,
             };
             final response = await http.post(
                 Uri.parse('$baseUrl/chat/send'),

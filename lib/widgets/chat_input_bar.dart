@@ -125,7 +125,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
       final XFile? file =
           await ImagePicker().pickImage(source: ImageSource.camera);
       if (file != null) {
-        final bytes = await file.readAsBytes();
+        Uint8List bytes = await file.readAsBytes();
+        if (bytes.isEmpty && file.path.isNotEmpty) {
+          try {
+            bytes = await File(file.path).readAsBytes();
+          } catch (_) {}
+        }
         setState(() => _attachments.add(PickedAttachment(
               name: file.name,
               icon: Icons.photo_camera_outlined,
@@ -150,7 +155,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
       final XFile? file =
           await ImagePicker().pickImage(source: ImageSource.gallery);
       if (file != null) {
-        final bytes = await file.readAsBytes();
+        Uint8List bytes = await file.readAsBytes();
+        if (bytes.isEmpty && file.path.isNotEmpty) {
+          try {
+            bytes = await File(file.path).readAsBytes();
+          } catch (_) {}
+        }
         setState(() => _attachments.add(PickedAttachment(
               name: file.name,
               icon: Icons.screenshot_monitor_outlined,
@@ -168,21 +178,29 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
-  /// Project option: Strictly allows project / document files
+  /// Project option: Allows project code, text files, and documents
   Future<void> _pickProject() async {
     setState(() => _busy = true);
     try {
       final result = await FilePicker.platform.pickFiles(withData: true);
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
+        Uint8List? bytes = file.bytes;
+        if ((bytes == null || bytes.isEmpty) && file.path != null) {
+          try {
+            bytes = await File(file.path!).readAsBytes();
+          } catch (_) {}
+        }
+        final ext = (file.extension ?? '').toLowerCase();
+        final isImg = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].contains(ext);
         setState(() => _attachments.add(PickedAttachment(
               name: file.name,
-              icon: Icons.folder_outlined,
+              icon: isImg ? Icons.image_outlined : Icons.folder_outlined,
               path: file.path,
-              bytes: file.bytes,
-              isImage: false,
-              fileType: 'project',
-              sizeInBytes: file.size,
+              bytes: bytes,
+              isImage: isImg,
+              fileType: isImg ? 'screenshot' : 'project',
+              sizeInBytes: bytes?.length ?? file.size,
             )));
       }
     } catch (e) {
