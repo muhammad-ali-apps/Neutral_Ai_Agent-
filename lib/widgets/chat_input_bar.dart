@@ -65,6 +65,8 @@ class ChatInputBar extends StatefulWidget {
   final String hint;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
   final bool showAttachButton;
+  final bool isGenerating;
+  final VoidCallback? onStop;
 
   const ChatInputBar({
     super.key,
@@ -72,6 +74,8 @@ class ChatInputBar extends StatefulWidget {
     required this.onSend,
     this.hint = 'Ask anything...',
     this.showAttachButton = true,
+    this.isGenerating = false,
+    this.onStop,
   });
 
   @override
@@ -114,6 +118,7 @@ class _ChatInputBarState extends State<ChatInputBar>
   }
 
   void _submit() {
+    if (widget.isGenerating) return;
     final text = widget.controller.text.trim();
     if (text.isEmpty && _attachments.isEmpty) return;
 
@@ -359,7 +364,9 @@ class _ChatInputBarState extends State<ChatInputBar>
                                 if (HardwareKeyboard.instance.isShiftPressed) {
                                   return KeyEventResult.ignored;
                                 }
-                                _submit();
+                                if (!widget.isGenerating) {
+                                  _submit();
+                                }
                                 return KeyEventResult.handled;
                               }
                               return KeyEventResult.ignored;
@@ -393,6 +400,33 @@ class _ChatInputBarState extends State<ChatInputBar>
                       ValueListenableBuilder<TextEditingValue>(
                         valueListenable: widget.controller,
                         builder: (context, value, _) {
+                          if (widget.isGenerating) {
+                            return Tooltip(
+                              message: 'Stop generating',
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 120),
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: context.isDark ? Colors.white : Colors.black,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  padding: EdgeInsets.zero,
+                                  onPressed: widget.onStop,
+                                  icon: Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      color: context.isDark ? Colors.black : Colors.white,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+
                           final canSend = value.text.trim().isNotEmpty ||
                               _attachments.isNotEmpty;
                           return AnimatedContainer(

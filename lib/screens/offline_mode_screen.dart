@@ -212,6 +212,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
 
   /// User sends a prompt
   void _send(String text, List<ChatAttachment> attachments) {
+    if (_isGenerating) return;
     if (text.trim().isEmpty && attachments.isEmpty) return;
 
     if (_engineStatus != EngineStatus.ready) {
@@ -266,6 +267,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     required String prompt,
     required String model,
     List<ChatAttachment> attachments = const [],
+    ChatMessage? existingMessage,
   }) {
     _chatStreamSub?.cancel();
 
@@ -289,6 +291,10 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     final List<Map<String, dynamic>> messagesPayload = [];
     if (_session != null) {
       for (final m in _session!.messages) {
+        // Exclude the existing message being regenerated from historical context
+        if (existingMessage != null && identical(m, existingMessage)) {
+          continue;
+        }
         if (m.isUser) {
           final enrichedContent = AttachmentProcessor.buildEnrichedPrompt(m.text, m.attachments);
           final Map<String, dynamic> userMsg = {
@@ -326,19 +332,36 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
       messagesPayload.add(userMsg);
     }
 
-    // Add empty assistant response to list
-    final assistantMsg = ChatMessage(
-      isUser: false,
-      modelName: effectiveModel,
-      text: (hasImageAttachments && !canSendImagesToModel)
-          ? '> ⚠️ **Vision Model Required:** The active offline model (`$effectiveModel`) is text-only. While code and text documents are analyzed directly, visual image inspection requires a vision model like **Moondream 2 (Vision 1.8B)** or **LLaVA (7B)** from the Models Manager.\n\n'
-          : '',
-    );
+    final ChatMessage assistantMsg;
+    if (existingMessage != null) {
+      assistantMsg = existingMessage;
+      assistantMsg.modelName = effectiveModel;
+      if (assistantMsg.versions == null || assistantMsg.versions!.isEmpty) {
+        assistantMsg.versions = [assistantMsg.text];
+      }
+      assistantMsg.versions!.add('');
+      assistantMsg.currentVersionIndex = assistantMsg.versions!.length - 1;
+      assistantMsg.text = '';
+      setState(() {
+        _isGenerating = true;
+      });
+    } else {
+      assistantMsg = ChatMessage(
+        isUser: false,
+        modelName: effectiveModel,
+        text: (hasImageAttachments && !canSendImagesToModel)
+            ? '> ⚠️ **Vision Model Required:** The active offline model (`$effectiveModel`) is text-only. While code and text documents are analyzed directly, visual image inspection requires a vision model like **Moondream 2 (Vision 1.8B)** or **LLaVA (7B)** from the Models Manager.\n\n'
+            : '',
+        versions: [],
+        currentVersionIndex: 0,
+      );
 
-    setState(() {
-      _session!.messages.add(assistantMsg);
-      _isGenerating = true;
-    });
+      setState(() {
+        _session!.messages.add(assistantMsg);
+        _isGenerating = true;
+      });
+    }
+
     _scrollToBottom();
 
     _chatStreamSub = OllamaService.chatStream(
@@ -349,6 +372,9 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
         if (!mounted || _session == null) return;
         setState(() {
           assistantMsg.text += chunk;
+          if (assistantMsg.versions != null && assistantMsg.versions!.isNotEmpty) {
+            assistantMsg.versions![assistantMsg.currentVersionIndex] = assistantMsg.text;
+          }
         });
         _scrollToBottom(animate: false);
       },
@@ -356,6 +382,12 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
         if (!mounted) return;
         setState(() {
           _isGenerating = false;
+          if (assistantMsg.versions == null || assistantMsg.versions!.isEmpty) {
+            assistantMsg.versions = [assistantMsg.text];
+            assistantMsg.currentVersionIndex = 0;
+          } else {
+            assistantMsg.versions![assistantMsg.currentVersionIndex] = assistantMsg.text;
+          }
         });
         historyStore.touch(_session!);
       },
@@ -363,6 +395,9 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
         if (!mounted) return;
         setState(() {
           assistantMsg.text += '\n\n[Generation stopped: $err]';
+          if (assistantMsg.versions != null && assistantMsg.versions!.isNotEmpty) {
+            assistantMsg.versions![assistantMsg.currentVersionIndex] = assistantMsg.text;
+          }
           _isGenerating = false;
         });
         historyStore.touch(_session!);
@@ -378,6 +413,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
   }
 
   void _startEdit(int index) {
+    if (_isGenerating) return;
     setState(() {
       _editingIndex = index;
       _editController = TextEditingController(text: _session!.messages[index].text);
@@ -392,6 +428,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
   }
 
   void _confirmEdit(int index) {
+    if (_isGenerating) return;
     final newText = _editController!.text.trim();
     if (newText.isEmpty) return;
     final activeModel = _selectedModelTag ?? (_installedModels.isNotEmpty ? _installedModels.first.modelTag : 'llama3.2:1b');
@@ -410,6 +447,11 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
   }
 
   void _regenerateAt(int index) {
+    if (_isGenerating || _session == null) return;
+    if (index < 0 || index >= _session!.messages.length) return;
+    final targetMsg = _session!.messages[index];
+    if (targetMsg.isUser) return;
+
     final activeModel = _selectedModelTag ?? (_installedModels.isNotEmpty ? _installedModels.first.modelTag : 'llama3.2:1b');
     String prompt = '';
     List<ChatAttachment> attachments = [];
@@ -421,16 +463,12 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
       }
     }
 
-    setState(() {
-      _session!.messages[index] = ChatMessage(
-        isUser: false,
-        modelName: activeModel,
-        text: '',
-      );
-      _isGenerating = true;
-    });
-
-    _streamAiResponse(prompt: prompt, model: activeModel, attachments: attachments);
+    _streamAiResponse(
+      prompt: prompt,
+      model: activeModel,
+      attachments: attachments,
+      existingMessage: targetMsg,
+    );
   }
 
   void _copy(String text) {
@@ -438,16 +476,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     showCopiedToast(context);
   }
 
-  String get _inputHint {
-    if (_engineStatus == EngineStatus.ready) {
-      if (_installedModels.isNotEmpty) {
-        return 'Ask ${_selectedModelTag ?? "local model"} (100% Offline)...';
-      } else {
-        return 'Download a model to chat offline...';
-      }
-    }
-    return 'Local engine offline...';
-  }
+  String get _inputHint => 'Ask anything';
 
   @override
   Widget build(BuildContext context) {
@@ -466,7 +495,6 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
               children: [
                 hasMessages ? _buildChatList(context) : _buildEmptyState(context),
                 if (hasMessages) _buildScrollToBottomButton(context),
-                if (_isGenerating) _buildGeneratingOverlay(context),
               ],
             ),
           ),
@@ -478,6 +506,8 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
               controller: _controller,
               showAttachButton: false,
               hint: _inputHint,
+              isGenerating: _isGenerating,
+              onStop: _stopGeneration,
               onSend: _send,
             ),
         ],
@@ -666,48 +696,6 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     );
   }
 
-  Widget _buildGeneratingOverlay(BuildContext context) {
-    return Positioned(
-      bottom: 20,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: context.surface2,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: context.borderColor),
-            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3))],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
-              ),
-              const SizedBox(width: 10),
-              Text('Generating offline response...', style: TextStyle(color: context.textPrimary, fontSize: 12.5)),
-              const SizedBox(width: 10),
-              InkWell(
-                onTap: _stopGeneration,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _errorColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text('Stop', style: TextStyle(color: _errorColor, fontSize: 11.5, fontWeight: FontWeight.w700)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildScrollToBottomButton(BuildContext context) {
     return Positioned(
@@ -745,32 +733,138 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     );
   }
 
+  String _formatOfflineModelName(String? raw) {
+    if (raw == null || raw.isEmpty) return 'Offline AI';
+    String clean = raw.trim();
+    if (clean.toLowerCase().startsWith('local:')) {
+      clean = clean.substring(6).trim();
+    }
+    final lower = clean.toLowerCase();
+    if (lower.startsWith('deepseek-r1') || lower.startsWith('deepseek -r1')) {
+      return 'DeepSeek-R1';
+    } else if (lower.startsWith('deepseek-coder')) {
+      return 'DeepSeek-Coder';
+    } else if (lower.startsWith('deepseek')) {
+      return 'DeepSeek';
+    } else if (lower.startsWith('llama3.2') || lower.startsWith('llama-3.2') || lower.startsWith('llama 3.2')) {
+      return 'Llama 3.2';
+    } else if (lower.startsWith('llama3.1') || lower.startsWith('llama-3.1') || lower.startsWith('llama 3.1')) {
+      return 'Llama 3.1';
+    } else if (lower.startsWith('llama3') || lower.startsWith('llama-3')) {
+      return 'Llama 3';
+    } else if (lower.startsWith('llama2') || lower.startsWith('llama-2')) {
+      return 'Llama 2';
+    } else if (lower.startsWith('qwen2.5') || lower.startsWith('qwen-2.5')) {
+      return 'Qwen 2.5';
+    } else if (lower.startsWith('qwen')) {
+      return 'Qwen';
+    } else if (lower.startsWith('mistral')) {
+      return 'Mistral';
+    } else if (lower.startsWith('phi3') || lower.startsWith('phi-3')) {
+      return 'Phi-3';
+    } else if (lower.startsWith('gemma2') || lower.startsWith('gemma-2')) {
+      return 'Gemma 2';
+    } else if (lower.startsWith('gemma')) {
+      return 'Gemma';
+    } else if (lower.startsWith('moondream')) {
+      return 'Moondream';
+    } else if (lower.startsWith('llava')) {
+      return 'LLaVA';
+    } else if (lower.startsWith('tinyllama')) {
+      return 'TinyLlama';
+    }
+
+    if (clean.contains(':')) {
+      clean = clean.split(':').first;
+    }
+    return clean.split(RegExp(r'[-_ ]')).map((w) {
+      if (w.isEmpty) return '';
+      return w[0].toUpperCase() + w.substring(1);
+    }).join('-');
+  }
+
+  Widget _buildVersionSwitcher(BuildContext context, ChatMessage m) {
+    if (m.versions == null || m.versions!.length <= 1) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: context.borderColor.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: m.currentVersionIndex > 0
+                ? () {
+                    setState(() {
+                      m.currentVersionIndex--;
+                      m.text = m.versions![m.currentVersionIndex];
+                    });
+                  }
+                : null,
+            child: Icon(
+              Icons.chevron_left_rounded,
+              size: 16,
+              color: m.currentVersionIndex > 0
+                  ? context.textPrimary
+                  : context.textSecondary.withValues(alpha: 0.3),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              '${m.currentVersionIndex + 1}/${m.versions!.length}',
+              style: TextStyle(color: context.textPrimary, fontSize: 10.5, fontWeight: FontWeight.w600),
+            ),
+          ),
+          InkWell(
+            onTap: m.currentVersionIndex < m.versions!.length - 1
+                ? () {
+                    setState(() {
+                      m.currentVersionIndex++;
+                      m.text = m.versions![m.currentVersionIndex];
+                    });
+                  }
+                : null,
+            child: Icon(
+              Icons.chevron_right_rounded,
+              size: 16,
+              color: m.currentVersionIndex < m.versions!.length - 1
+                  ? context.textPrimary
+                  : context.textSecondary.withValues(alpha: 0.3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bubbleMaxWidth = screenWidth < 660 ? screenWidth * 0.90 : 640.0;
     final isDark = context.isDark;
 
-    const claudeUserDark = Color(0xFF262522);
-    const claudeBorderDark = Color(0xFF3E3C37);
-    const claudeUserLight = Color(0xFFF5F3ED);
-    const claudeBorderLight = Color(0xFFE2DFD6);
+    int lastAssistantIndex = -1;
+    for (int k = messages.length - 1; k >= 0; k--) {
+      if (!messages[k].isUser) {
+        lastAssistantIndex = k;
+        break;
+      }
+    }
 
     return ListView.builder(
       controller: _scrollController,
-      padding: EdgeInsets.symmetric(
-        horizontal: screenWidth < 500 ? 12 : 20,
-        vertical: 16,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 20),
       itemCount: messages.length,
       itemBuilder: (context, i) {
         final m = messages[i];
 
         if (i == _editingIndex) {
-          return Align(
-            alignment: Alignment.centerRight,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 14),
+          return Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 800),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              alignment: Alignment.centerRight,
               child: MessageEditBox(
                 controller: _editController!,
                 onCancel: _cancelEdit,
@@ -780,87 +874,104 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
           );
         }
 
-        return Align(
-          alignment: m.isUser ? Alignment.centerRight : Alignment.centerLeft,
-          child: Column(
-            crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              Container(
-                constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: m.isUser
-                      ? (isDark ? claudeUserDark : claudeUserLight)
-                      : context.surface2,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: m.isUser
-                        ? (isDark ? claudeBorderDark : claudeBorderLight)
-                        : context.borderColor,
-                    width: 1.1,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (m.attachments.isNotEmpty)
-                      ChatAttachmentsView(attachments: m.attachments, isUser: m.isUser),
-                    if (!m.isUser && m.modelName != null) ...[
-                      Row(
-                        children: [
-                          const Icon(Icons.bolt_rounded, size: 14, color: AppColors.purple),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Local: ${m.modelName!}',
-                            style: TextStyle(
-                              color: context.textPrimary,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12.5,
+        final isLatestAssistant = (i == lastAssistantIndex);
+
+        return Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 800),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      if (!m.isUser) ...[
+                        Row(
+                          children: [
+                            Text(
+                              _formatOfflineModelName(m.modelName),
+                              style: TextStyle(
+                                color: context.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
                             ),
-                          ),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.success.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.success.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Offline',
+                                style: TextStyle(
+                                  color: AppColors.success,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
-                            child: const Text('Offline', style: TextStyle(color: AppColors.success, fontSize: 10, fontWeight: FontWeight.bold)),
-                          )
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    if (m.isUser)
-                      Text(
-                        m.text,
-                        style: TextStyle(
-                          color: isDark ? Colors.white : const Color(0xFF1E1E1E),
-                          fontSize: 14.5,
-                          height: 1.5,
+                          ],
                         ),
-                      )
-                    else
-                      FormattedMessageView(
-                        text: m.text.isEmpty && _isGenerating ? 'Thinking...' : m.text,
-                        isUser: false,
-                        textColor: context.textPrimary,
-                      ),
-                  ],
+                        const SizedBox(height: 8),
+                      ],
+                      m.isUser
+                          ? Container(
+                              constraints: const BoxConstraints(maxWidth: 600),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF2F2F2F) : const Color(0xFFF4F4F4),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF383838) : const Color(0xFFE5E5E5),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (m.attachments.isNotEmpty) ...[
+                                    ChatAttachmentsView(attachments: m.attachments, isUser: true),
+                                    const SizedBox(height: 6),
+                                  ],
+                                  SelectionArea(
+                                    child: Text(
+                                      m.text,
+                                      style: TextStyle(
+                                        color: context.textPrimary,
+                                        fontSize: 14.5,
+                                        height: 1.45,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : FormattedMessageView(
+                              text: m.text.isEmpty && _isGenerating ? 'Thinking...' : m.text,
+                              isUser: false,
+                              textColor: context.textPrimary,
+                            ),
+                      const SizedBox(height: 6),
+                      m.isUser
+                          ? UserMessageActions(
+                              onEdit: () => _startEdit(i),
+                              onCopy: () => _copy(m.text),
+                            )
+                          : AssistantMessageActions(
+                              leading: _buildVersionSwitcher(context, m),
+                              onCopy: () => _copy(m.text),
+                              onRegenerate: (isLatestAssistant && !_isGenerating)
+                                  ? () => _regenerateAt(i)
+                                  : null,
+                            ),
+                    ],
+                  ),
                 ),
-              ),
-              m.isUser
-                  ? UserMessageActions(onEdit: () => _startEdit(i), onCopy: () => _copy(m.text))
-                  : AssistantMessageActions(onCopy: () => _copy(m.text), onRegenerate: () => _regenerateAt(i)),
-              const SizedBox(height: 8),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -887,6 +998,8 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
                 controller: _controller,
                 showAttachButton: false,
                 hint: _inputHint,
+                isGenerating: _isGenerating,
+                onStop: _stopGeneration,
                 onSend: _send,
               ),
             ],

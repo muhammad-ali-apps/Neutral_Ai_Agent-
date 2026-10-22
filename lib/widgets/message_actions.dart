@@ -48,8 +48,14 @@ class UserMessageActions extends StatelessWidget {
 /// Copy and regenerate actions under an assistant response.
 class AssistantMessageActions extends StatelessWidget {
   final VoidCallback onCopy;
-  final VoidCallback onRegenerate;
-  const AssistantMessageActions({super.key, required this.onCopy, required this.onRegenerate});
+  final VoidCallback? onRegenerate;
+  final Widget? leading;
+  const AssistantMessageActions({
+    super.key,
+    required this.onCopy,
+    this.onRegenerate,
+    this.leading,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -58,8 +64,13 @@ class AssistantMessageActions extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (leading != null) ...[
+            leading!,
+            const SizedBox(width: 4),
+          ],
           messageActionIcon(context, Icons.copy_rounded, onCopy, tooltip: 'Copy'),
-          messageActionIcon(context, Icons.refresh_rounded, onRegenerate, tooltip: 'Regenerate'),
+          if (onRegenerate != null)
+            messageActionIcon(context, Icons.refresh_rounded, onRegenerate!, tooltip: 'Regenerate'),
         ],
       ),
     );
