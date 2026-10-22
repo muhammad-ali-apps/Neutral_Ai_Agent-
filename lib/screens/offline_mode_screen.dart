@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:animated_text_kit/animated_text_kit.dart';
+import '../widgets/animated_title_text.dart';
 import '../app_theme.dart';
 import '../models.dart';
 import '../services/ollama_service.dart';
@@ -38,7 +38,6 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
   double _installProgress = 0.0;
 
   List<InstalledModel> _installedModels = [];
-  List<CatalogModel> _catalogModels = [];
   String? _selectedModelTag;
 
   StreamSubscription? _chatStreamSub;
@@ -129,19 +128,15 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
           _statusMessage = 'Ollama engine is not installed on this system.';
         });
       }
-      // Also prefetch catalog
-      _catalogModels = await OllamaService.getCatalog();
     }
   }
 
   Future<void> _loadModels() async {
     final installed = await OllamaService.getInstalledModels();
-    final catalog = await OllamaService.getCatalog();
 
     if (!mounted) return;
     setState(() {
       _installedModels = installed;
-      _catalogModels = catalog;
 
       if (_installedModels.isNotEmpty) {
         if (_selectedModelTag == null || !_installedModels.any((m) => m.modelTag == _selectedModelTag)) {
@@ -443,6 +438,17 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     showCopiedToast(context);
   }
 
+  String get _inputHint {
+    if (_engineStatus == EngineStatus.ready) {
+      if (_installedModels.isNotEmpty) {
+        return 'Ask ${_selectedModelTag ?? "local model"} (100% Offline)...';
+      } else {
+        return 'Download a model to chat offline...';
+      }
+    }
+    return 'Local engine offline...';
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasMessages = _session != null && _session!.messages.isNotEmpty;
@@ -454,26 +460,26 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
           // Header with Model Selector & Manager button
           _buildTopBar(context),
 
-          // Main Chat / Setup Body
+          // Main Chat / Empty State Body
           Expanded(
             child: Stack(
               children: [
-                hasMessages ? _buildChatList(context) : _buildSetupState(context),
+                hasMessages ? _buildChatList(context) : _buildEmptyState(context),
                 if (hasMessages) _buildScrollToBottomButton(context),
                 if (_isGenerating) _buildGeneratingOverlay(context),
               ],
             ),
           ),
 
-          // Input Bar with Stop option
-          ChatInputBar(
-            controller: _controller,
-            showAttachButton: false,
-            hint: _engineStatus == EngineStatus.ready
-                ? (_installedModels.isNotEmpty ? 'Ask ${_selectedModelTag ?? "local model"} (100% Offline)...' : 'Download a model below to chat offline...')
-                : 'Local engine offline...',
-            onSend: _send,
-          ),
+          // Bottom Input Bar only when messages are present (matching Smart Routing)
+          if (hasMessages)
+            ChatInputBar(
+              key: const ValueKey('bottom_chat_input_bar'),
+              controller: _controller,
+              showAttachButton: false,
+              hint: _inputHint,
+              onSend: _send,
+            ),
         ],
       ),
     );
@@ -505,40 +511,55 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
               child: const Icon(Icons.wifi_off_rounded, color: AppColors.purple, size: 20),
             ),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Offline Mode',
-                  style: TextStyle(
-                    color: context.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+            InkWell(
+              onTap: () {
+                if (_engineStatus == EngineStatus.notInstalled) {
+                  _startAutoInstall();
+                } else if (_engineStatus != EngineStatus.ready) {
+                  _initializeLocalEngine();
+                }
+              },
+              borderRadius: BorderRadius.circular(6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Offline Mode',
+                    style: TextStyle(
+                      color: context.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                Row(
-                  children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _engineStatus == EngineStatus.ready
-                            ? AppColors.success
-                            : (_engineStatus == EngineStatus.installing ? Colors.blue : Colors.orange),
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _engineStatus == EngineStatus.ready
+                              ? AppColors.success
+                              : (_engineStatus == EngineStatus.installing ? Colors.blue : Colors.orange),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      _engineStatus == EngineStatus.ready
-                          ? 'Local Engine Active'
-                          : (_engineStatus == EngineStatus.installing ? 'Installing...' : 'Engine Offline'),
-                      style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 5),
+                      Tooltip(
+                        message: _statusMessage,
+                        child: Text(
+                          _engineStatus == EngineStatus.ready
+                              ? 'Local Engine Active'
+                              : (_engineStatus == EngineStatus.installing
+                                  ? 'Installing (${(_installProgress * 100).toInt()}%)...'
+                                  : 'Engine Offline'),
+                          style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
             const Spacer(),
 
@@ -678,7 +699,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
                     color: _errorColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text('Stop', style: TextStyle(color: _errorColor, fontSize: 11.5, fontWeight: FontWeight.w700)),
+                  child: const Text('Stop', style: TextStyle(color: _errorColor, fontSize: 11.5, fontWeight: FontWeight.w700)),
                 ),
               ),
             ],
@@ -846,256 +867,31 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     );
   }
 
-  Widget _buildSetupState(BuildContext context) {
+  Widget _buildEmptyState(BuildContext context) {
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 580),
+          constraints: const BoxConstraints(maxWidth: 800),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
-                width: 68,
-                height: 68,
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(Icons.wifi_off_rounded, color: AppColors.purple, size: 34),
-              ),
-              const SizedBox(height: 16),
-              AnimatedTextKit(
-                animatedTexts: [
-                  TypewriterAnimatedText(
-                    'Offline AI Engine',
-                    textStyle: TextStyle(color: context.textPrimary, fontSize: 22, fontWeight: FontWeight.w700),
-                    speed: const Duration(milliseconds: 140),
-                  ),
-                ],
-                totalRepeatCount: 1,
-                displayFullTextOnTap: true,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Run powerful local LLMs completely offline on your CPU / GPU with zero internet connection.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: context.textSecondary, fontSize: 14, height: 1.45),
+              const AnimatedTitleText(
+                text: 'Offline AI Engine',
               ),
               const SizedBox(height: 24),
-
-              // Engine Status Card
-              if (_engineStatus == EngineStatus.notInstalled)
-                _buildInstallCard(context)
-              else if (_engineStatus == EngineStatus.installing)
-                _buildInstallingCard(context)
-              else if (_engineStatus == EngineStatus.ready)
-                _buildReadyCard(context)
-              else
-                _buildStoppedCard(context),
+              ChatInputBar(
+                key: const ValueKey('centered_chat_input_bar'),
+                controller: _controller,
+                showAttachButton: false,
+                hint: _inputHint,
+                onSend: _send,
+              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildInstallCard(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: context.surface2,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 22),
-              SizedBox(width: 8),
-              Text('Ollama Runtime Not Detected', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w700, fontSize: 15)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'To run models offline without internet, the local Ollama runtime is required. You do not need to install it manually — click below for automated background setup.',
-            style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _startAutoInstall,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.purple,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.download_for_offline_rounded),
-              label: const Text('One-Click Auto-Setup Engine', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInstallingCard(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: context.surface2,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.purple.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.purple),
-              ),
-              const SizedBox(width: 10),
-              Text('Setting Up Engine...', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
-              const Spacer(),
-              Text('${(_installProgress * 100).toInt()}%', style: const TextStyle(color: AppColors.purple, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: _installProgress,
-              minHeight: 8,
-              backgroundColor: context.surface,
-              color: AppColors.purple,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(_statusMessage, style: TextStyle(color: context.textSecondary, fontSize: 12.5)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStoppedCard(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: context.surface2,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: context.borderColor),
-      ),
-      child: Column(
-        children: [
-          Text('Ollama is installed but not currently responding.', style: TextStyle(color: context.textPrimary, fontSize: 13.5)),
-          const SizedBox(height: 14),
-          ElevatedButton.icon(
-            onPressed: _initializeLocalEngine,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.purple,
-              foregroundColor: Colors.white,
-            ),
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Start Local Engine'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReadyCard(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 20),
-              const SizedBox(width: 8),
-              const Text('Ollama Runtime is Online', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w700, fontSize: 15)),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _showModelManagerModal,
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('Get Models'),
-                style: TextButton.styleFrom(foregroundColor: AppColors.purple),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (_installedModels.isEmpty) ...[
-            Text(
-              'No models are downloaded on this device yet. Click "Manage Models" to pick and download an offline model (e.g. Llama 3.2 1B).',
-              style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.4),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _showModelManagerModal,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.purple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                icon: const Icon(Icons.inventory_2_rounded),
-                label: const Text('Browse & Download Offline Models'),
-              ),
-            ),
-          ] else ...[
-            Text('Ready Models installed on your disk:', style: TextStyle(color: context.textSecondary, fontSize: 12.5)),
-            const SizedBox(height: 8),
-            ..._installedModels.map((m) {
-              final isSelected = m.modelTag == _selectedModelTag;
-              return Container(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppColors.purple.withValues(alpha: 0.12) : context.surface2,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: isSelected ? AppColors.purple : context.borderColor,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.memory_rounded, size: 16, color: isSelected ? AppColors.purple : context.textSecondary),
-                    const SizedBox(width: 8),
-                    Text(m.name, style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
-                    const Spacer(),
-                    Text(m.sizeFormatted, style: TextStyle(color: context.textSecondary, fontSize: 12)),
-                    const SizedBox(width: 8),
-                    if (isSelected)
-                      const Icon(Icons.check_rounded, color: AppColors.purple, size: 18)
-                    else
-                      InkWell(
-                        onTap: () => setState(() => _selectedModelTag = m.modelTag),
-                        child: const Text('Select', style: TextStyle(color: AppColors.purple, fontSize: 12, fontWeight: FontWeight.w600)),
-                      ),
-                  ],
-                ),
-              );
-            }),
-            const SizedBox(height: 14),
-            Text('Type a question in the chat bar below to test your local AI model!', style: TextStyle(color: context.textSecondary, fontSize: 12, fontStyle: FontStyle.italic)),
-          ],
-        ],
       ),
     );
   }
