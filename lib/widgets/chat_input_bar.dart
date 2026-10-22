@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -63,21 +64,40 @@ class ChatInputBar extends StatefulWidget {
   final TextEditingController controller;
   final String hint;
   final void Function(String text, List<ChatAttachment> attachments) onSend;
+  final bool showAttachButton;
 
   const ChatInputBar({
     super.key,
     required this.controller,
     required this.onSend,
     this.hint = 'Ask anything...',
+    this.showAttachButton = true,
   });
 
   @override
   State<ChatInputBar> createState() => _ChatInputBarState();
 }
 
-class _ChatInputBarState extends State<ChatInputBar> {
+class _ChatInputBarState extends State<ChatInputBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _borderAnimationController;
   final List<PickedAttachment> _attachments = [];
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _borderAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _borderAnimationController.dispose();
+    super.dispose();
+  }
 
   String get _effectiveHint {
     if (_attachments.isNotEmpty) {
@@ -236,170 +256,191 @@ class _ChatInputBarState extends State<ChatInputBar> {
               ),
               const SizedBox(height: 8),
             ],
-            Container(
-              decoration: BoxDecoration(
-                color: context.isDark
-                    ? const Color(0xFF2F2F2F)
-                    : const Color(0xFFF4F4F4),
-                borderRadius: BorderRadius.circular(26),
-                border: Border.all(
-                  color: context.isDark
-                      ? const Color(0xFF383838)
-                      : const Color(0xFFE5E5E5),
-                  width: 1.2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black
-                        .withValues(alpha: context.isDark ? 0.2 : 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
+            Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.isDark
+                        ? const Color(0xFF2F2F2F)
+                        : const Color(0xFFF4F4F4),
+                    borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black
+                            .withValues(alpha: context.isDark ? 0.2 : 0.04),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  _busy
-                      ? const Padding(
-                          padding: EdgeInsets.all(7),
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.openaiGreen,
-                            ),
-                          ),
-                        )
-                      : PopupMenuButton<String>(
-                          tooltip: 'Attach file',
-                          offset: const Offset(0, -160),
-                          color: context.surface2,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            side: BorderSide(color: context.borderColor),
-                          ),
-                          onSelected: (v) {
-                            if (v == 'Camera') _pickCamera();
-                            if (v == 'Screenshot') _pickScreenshot();
-                            if (v == 'Project') _pickProject();
-                          },
-                          itemBuilder: (context) => [
-                            _menuItem(
-                              context,
-                              'Screenshot',
-                              Icons.screenshot_monitor_outlined,
-                              'Attach image / screenshot',
-                            ),
-                            _menuItem(
-                              context,
-                              'Project',
-                              Icons.folder_outlined,
-                              'Attach project file / code',
-                            ),
-                            _menuItem(
-                              context,
-                              'Camera',
-                              Icons.photo_camera_outlined,
-                              'Take a photo',
-                            ),
-                          ],
-                          child: Container(
-                            width: 34,
-                            height: 34,
-                            decoration: BoxDecoration(
-                              color: context.isDark
-                                  ? Colors.white10
-                                  : Colors.black12,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.add_rounded,
-                              color: context.textPrimary,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 140),
-                      child: Focus(
-                        onKeyEvent: (node, event) {
-                          final isEnter =
-                              event.logicalKey == LogicalKeyboardKey.enter ||
-                                  event.logicalKey ==
-                                      LogicalKeyboardKey.numpadEnter;
-                          if (event is KeyDownEvent && isEnter) {
-                            if (HardwareKeyboard.instance.isShiftPressed) {
+                  padding: EdgeInsets.fromLTRB(
+                    widget.showAttachButton ? 12 : 16,
+                    6,
+                    8,
+                    6,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      if (widget.showAttachButton) ...[
+                        _busy
+                            ? const Padding(
+                                padding: EdgeInsets.all(7),
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.openaiGreen,
+                                  ),
+                                ),
+                              )
+                            : PopupMenuButton<String>(
+                                tooltip: 'Attach file',
+                                offset: const Offset(0, -160),
+                                color: context.surface2,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(color: context.borderColor),
+                                ),
+                                onSelected: (v) {
+                                  if (v == 'Camera') _pickCamera();
+                                  if (v == 'Screenshot') _pickScreenshot();
+                                  if (v == 'Project') _pickProject();
+                                },
+                                itemBuilder: (context) => [
+                                  _menuItem(
+                                    context,
+                                    'Screenshot',
+                                    Icons.screenshot_monitor_outlined,
+                                    'Attach image / screenshot',
+                                  ),
+                                  _menuItem(
+                                    context,
+                                    'Project',
+                                    Icons.folder_outlined,
+                                    'Attach project file / code',
+                                  ),
+                                  _menuItem(
+                                    context,
+                                    'Camera',
+                                    Icons.photo_camera_outlined,
+                                    'Take a photo',
+                                  ),
+                                ],
+                                child: Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    color: context.isDark
+                                        ? Colors.white10
+                                        : Colors.black12,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.add_rounded,
+                                    color: context.textPrimary,
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 140),
+                          child: Focus(
+                            onKeyEvent: (node, event) {
+                              final isEnter =
+                                  event.logicalKey == LogicalKeyboardKey.enter ||
+                                      event.logicalKey ==
+                                          LogicalKeyboardKey.numpadEnter;
+                              if (event is KeyDownEvent && isEnter) {
+                                if (HardwareKeyboard.instance.isShiftPressed) {
+                                  return KeyEventResult.ignored;
+                                }
+                                _submit();
+                                return KeyEventResult.handled;
+                              }
                               return KeyEventResult.ignored;
-                            }
-                            _submit();
-                            return KeyEventResult.handled;
-                          }
-                          return KeyEventResult.ignored;
-                        },
-                        child: TextField(
-                          controller: widget.controller,
-                          minLines: 1,
-                          maxLines: 6,
-                          textInputAction: TextInputAction.newline,
-                          style: TextStyle(
-                            color: context.textPrimary,
-                            fontSize: 14.5,
-                            height: 1.35,
-                          ),
-                          decoration: InputDecoration(
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 8),
-                            hintText: _effectiveHint,
-                            hintStyle: TextStyle(
-                              color: context.textSecondary,
-                              fontSize: 14,
+                            },
+                            child: TextField(
+                              controller: widget.controller,
+                              minLines: 1,
+                              maxLines: 6,
+                              textInputAction: TextInputAction.newline,
+                              style: TextStyle(
+                                color: context.textPrimary,
+                                fontSize: 14.5,
+                                height: 1.35,
+                              ),
+                              decoration: InputDecoration(
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 8),
+                                hintText: _effectiveHint,
+                                hintStyle: TextStyle(
+                                  color: context.textSecondary,
+                                  fontSize: 14,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: widget.controller,
+                        builder: (context, value, _) {
+                          final canSend = value.text.trim().isNotEmpty ||
+                              _attachments.isNotEmpty;
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: canSend
+                                  ? (context.isDark ? Colors.white : Colors.black)
+                                  : (context.isDark
+                                      ? Colors.white24
+                                      : Colors.black12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: canSend ? _submit : null,
+                              icon: Icon(
+                                Icons.arrow_upward_rounded,
+                                color: canSend
+                                    ? (context.isDark ? Colors.black : Colors.white)
+                                    : context.textSecondary,
+                                size: 18,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _borderAnimationController,
+                      builder: (context, _) {
+                        return CustomPaint(
+                          painter: AnimatedRgbBorderPainter(
+                            progress: _borderAnimationController.value,
+                            borderRadius: 26,
+                            strokeWidth: 2.0,
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: widget.controller,
-                    builder: (context, value, _) {
-                      final canSend = value.text.trim().isNotEmpty ||
-                          _attachments.isNotEmpty;
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 120),
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: canSend
-                              ? (context.isDark ? Colors.white : Colors.black)
-                              : (context.isDark
-                                  ? Colors.white24
-                                  : Colors.black12),
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: canSend ? _submit : null,
-                          icon: Icon(
-                            Icons.arrow_upward_rounded,
-                            color: canSend
-                                ? (context.isDark ? Colors.black : Colors.white)
-                                : context.textSecondary,
-                            size: 18,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(
@@ -580,5 +621,123 @@ class _ChatInputBarState extends State<ChatInputBar> {
         ],
       ),
     );
+  }
+}
+
+/// Animated custom painter that renders a dynamic, moving RGB border beam
+/// covering exactly half the perimeter of the rounded rectangle container.
+///
+/// Features:
+/// - Smooth Euclidean perimeter tracking with constant speed
+/// - Exactly half-length border beam (totalLength * 0.5)
+/// - Continuous 360° cycling RGB/rainbow spectrum
+/// - Smooth fading at both ends of the beam
+/// - Subtle neon glow pass + crisp core line
+class AnimatedRgbBorderPainter extends CustomPainter {
+  final double progress;
+  final double borderRadius;
+  final double strokeWidth;
+
+  AnimatedRgbBorderPainter({
+    required this.progress,
+    this.borderRadius = 26.0,
+    this.strokeWidth = 2.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final halfStroke = strokeWidth / 2;
+    final clampedRadius = math.min(
+      borderRadius,
+      math.min(size.width, size.height) / 2,
+    );
+
+    final rect = Rect.fromLTWH(
+      halfStroke,
+      halfStroke,
+      size.width - strokeWidth,
+      size.height - strokeWidth,
+    );
+    final rrect = RRect.fromRectAndRadius(
+      rect,
+      Radius.circular(math.max(0, clampedRadius - halfStroke)),
+    );
+
+    final path = Path()..addRRect(rrect);
+    final metrics = path.computeMetrics().toList();
+    if (metrics.isEmpty) return;
+    final metric = metrics.first;
+    final totalLength = metric.length;
+    if (totalLength <= 0) return;
+
+    // Half length of the border perimeter as requested
+    final beamLength = totalLength * 0.5;
+    final startDist = (progress * totalLength) % totalLength;
+
+    const int segments = 48;
+    for (int i = 0; i < segments; i++) {
+      final double t1 = i / segments;
+      final double t2 = (i + 1) / segments;
+      final double d1 = (startDist + t1 * beamLength) % totalLength;
+      final double d2 = (startDist + t2 * beamLength) % totalLength;
+
+      final double frac = i / (segments - 1);
+
+      // Smooth fade at the two ends of the half-length beam
+      double alpha;
+      if (frac < 0.12) {
+        alpha = frac / 0.12;
+      } else if (frac > 0.88) {
+        alpha = (1.0 - frac) / 0.12;
+      } else {
+        alpha = 1.0;
+      }
+
+      // Animated cycling RGB spectrum
+      final double hue = (frac * 360.0 + progress * 360.0) % 360.0;
+      final color = HSVColor.fromAHSV(
+        alpha.clamp(0.0, 1.0),
+        hue,
+        1.0,
+        1.0,
+      ).toColor();
+
+      // Soft neon glow layer
+      final glowPaint = Paint()
+        ..color = color.withValues(alpha: alpha * 0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth + 2.0
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
+
+      // Sharp core RGB line
+      final corePaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+
+      if (d1 < d2) {
+        final p = metric.extractPath(d1, d2);
+        canvas.drawPath(p, glowPaint);
+        canvas.drawPath(p, corePaint);
+      } else if (d1 > d2) {
+        final p1 = metric.extractPath(d1, totalLength);
+        canvas.drawPath(p1, glowPaint);
+        canvas.drawPath(p1, corePaint);
+        final p2 = metric.extractPath(0, d2);
+        canvas.drawPath(p2, glowPaint);
+        canvas.drawPath(p2, corePaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant AnimatedRgbBorderPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }

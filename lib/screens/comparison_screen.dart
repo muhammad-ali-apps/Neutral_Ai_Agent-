@@ -1,4 +1,4 @@
-import 'package:animated_text_kit/animated_text_kit.dart';
+import '../widgets/animated_title_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
@@ -162,7 +162,13 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   void _send(String text, List<ChatAttachment> attachments) async {
     if (text.trim().isEmpty && attachments.isEmpty) return;
     final modelsToUse = _selectedModels;
-    if (modelsToUse.isEmpty) return;
+    if (modelsToUse.isEmpty) {
+      _scaffoldKey.currentState?.openEndDrawer();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select models to compare first')),
+      );
+      return;
+    }
 
     final selectedIds = modelsToUse.map((m) => m.id).toList();
 
@@ -490,24 +496,24 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           ),
           if (_selectedModels.isNotEmpty) _buildSelectedBar(context),
           Expanded(
-            child: Stack(
-              children: [
-                _selectedModels.isEmpty
-                    ? _buildNoModelsState(context)
-                    : hasMessages
-                        ? _buildChatList(context)
-                        : _buildEmptyState(context),
-                if (hasMessages) _buildScrollToBottomButton(context),
-              ],
+            child: hasMessages
+                ? Stack(
+                    children: [
+                      _buildChatList(context),
+                      _buildScrollToBottomButton(context),
+                    ],
+                  )
+                : _buildEmptyState(context),
+          ),
+          if (hasMessages)
+            ChatInputBar(
+              key: const ValueKey('bottom_comparison_input_bar'),
+              controller: _controller,
+              hint: _selectedModels.isEmpty
+                  ? 'Select models to compare...'
+                  : 'Ask anything to compare selected models...',
+              onSend: _send,
             ),
-          ),
-          ChatInputBar(
-            controller: _controller,
-            hint: _selectedModels.isEmpty
-                ? 'Select models to compare...'
-                : 'Ask anything to compare selected models...',
-            onSend: _send,
-          ),
         ],
       ),
     );
@@ -538,73 +544,31 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     );
   }
 
-  Widget _buildNoModelsState(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.view_sidebar_rounded, color: context.textSecondary, size: 32),
-            const SizedBox(height: 12),
-            AnimatedTextKit(
-              animatedTexts: [
-                TypewriterAnimatedText(
-                  'No models selected',
-                  textStyle: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 15.5),
-                  speed: const Duration(milliseconds: 100),
-                ),
-              ],
-              totalRepeatCount: 1,
-            ),
-            const SizedBox(height: 6),
-            Text('Tap the icon in the top-right corner to choose models to compare.',
-                textAlign: TextAlign.center, style: TextStyle(color: context.textSecondary, fontSize: 12.5)),
-            const SizedBox(height: 14),
-            SizedBox(
-              height: 36,
-              child: ElevatedButton.icon(
-                onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.purple,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('Select Models', style: TextStyle(fontSize: 13)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildEmptyState(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.compare_arrows_rounded, color: AppColors.purple, size: 32),
-            const SizedBox(height: 12),
-            AnimatedTextKit(
-              animatedTexts: [
-                TypewriterAnimatedText(
-                  'Comparison Mode',
-                  textStyle: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w700, fontSize: 15.5),
-                  speed: const Duration(milliseconds: 100),
-                ),
-              ],
-              totalRepeatCount: 1,
-            ),
-            const SizedBox(height: 6),
-            Text('Type a prompt below to see real-time responses from all ${_selectedModels.length} selected models.',
-                textAlign: TextAlign.center, style: TextStyle(color: context.textSecondary, fontSize: 12.5)),
-          ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const AnimatedTitleText(
+                text: 'What can I help you today?',
+              ),
+              const SizedBox(height: 24),
+              ChatInputBar(
+                key: const ValueKey('centered_comparison_input_bar'),
+                controller: _controller,
+                hint: _selectedModels.isEmpty
+                    ? 'Select models to compare...'
+                    : 'Ask anything to compare selected models...',
+                onSend: _send,
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -468,6 +468,7 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
           // Input Bar with Stop option
           ChatInputBar(
             controller: _controller,
+            showAttachButton: false,
             hint: _engineStatus == EngineStatus.ready
                 ? (_installedModels.isNotEmpty ? 'Ask ${_selectedModelTag ?? "local model"} (100% Offline)...' : 'Download a model below to chat offline...')
                 : 'Local engine offline...',

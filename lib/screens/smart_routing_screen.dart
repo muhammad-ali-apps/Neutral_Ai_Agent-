@@ -6,6 +6,7 @@ import '../models.dart';
 import '../services/api_services.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/chat_input_bar.dart';
+import '../widgets/animated_title_text.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
@@ -295,12 +296,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     );
   }
 
-  final _suggestions = const [
-    'Write a Python function to sort a list',
-    'Explain quantum entanglement',
-    'Write a short poem about the sea',
-    'Solve: 2x² + 5x - 3 = 0',
-  ];
+
 
   void _notifySession() => widget.onSessionChanged?.call(_session?.id);
 
@@ -390,7 +386,7 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     }
   }
 
-  void _sendSuggestion(String text) => _send(text, []);
+
 
   void _startEdit(int index) {
     setState(() {
@@ -559,19 +555,23 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
             ),
           ),
           Expanded(
-            child: Stack(
-              children: [
-                hasMessages ? _buildChatList(context) : _buildEmptyState(context, activeCount),
-                if (hasMessages) _buildScrollToBottomButton(context),
-              ],
-            ),
+            child: hasMessages
+                ? Stack(
+                    children: [
+                      _buildChatList(context),
+                      _buildScrollToBottomButton(context),
+                    ],
+                  )
+                : _buildEmptyState(context, activeCount),
           ),
           if (_thinking) _buildThinkingBar(context),
-          ChatInputBar(
-            controller: _controller,
-            hint: "Ask anything ",
-            onSend: _send,
-          ),
+          if (hasMessages)
+            ChatInputBar(
+              key: const ValueKey('bottom_chat_input_bar'),
+              controller: _controller,
+              hint: "Ask anything ",
+              onSend: _send,
+            ),
         ],
       ),
     );
@@ -580,47 +580,23 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   Widget _buildEmptyState(BuildContext context, int activeCount) {
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
+          constraints: const BoxConstraints(maxWidth: 800),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: const BoxDecoration(
-                  color: AppColors.openaiGreen,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.auto_awesome, color: Colors.white, size: 28),
+              const AnimatedTitleText(
+                text: 'What can I help you today?',
               ),
-              const SizedBox(height: 20),
-              Text(
-                'What can I help with today?',
-                style: TextStyle(
-                  color: context.textPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 28),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isNarrow = constraints.maxWidth < 520;
-                  return GridView.count(
-                    crossAxisCount: isNarrow ? 1 : 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: isNarrow ? 4.8 : 3.0,
-                    children: _suggestions.map((s) {
-                      return _SuggestionCard(text: s, onTap: () => _sendSuggestion(s));
-                    }).toList(),
-                  );
-                },
+              const SizedBox(height: 24),
+              ChatInputBar(
+                key: const ValueKey('centered_chat_input_bar'),
+                controller: _controller,
+                hint: "Ask anything ",
+                onSend: _send,
               ),
             ],
           ),
@@ -805,42 +781,3 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   }
 }
 
-class _SuggestionCard extends StatelessWidget {
-  final String text;
-  final VoidCallback onTap;
-  const _SuggestionCard({required this.text, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = context.isDark;
-    return Material(
-      color: isDark ? const Color(0xFF212121) : Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        hoverColor: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? const Color(0xFF383838) : const Color(0xFFE5E5E5),
-              width: 1.1,
-            ),
-          ),
-          alignment: Alignment.centerLeft,
-          child: Text(
-            text,
-            style: TextStyle(
-              color: context.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              height: 1.3,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
