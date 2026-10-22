@@ -190,9 +190,10 @@ class ModelStore extends ChangeNotifier {
 
   /// Fetch all models from backend API.
   Future<void> loadFromApi() async {
+    if (isLoading) return;
     isLoading = true;
     errorMessage = null;
-    notifyListeners();
+    Future.microtask(() => notifyListeners());
 
     try {
       final result = await ApiService.fetchLlmModels();
@@ -206,7 +207,7 @@ class ModelStore extends ChangeNotifier {
     }
 
     isLoading = false;
-    notifyListeners();
+    Future.microtask(() => notifyListeners());
   }
 
   /// Add a new model via API.
@@ -495,8 +496,9 @@ class HistoryStore extends ChangeNotifier {
 
   /// Fetch all sessions from backend API.
   Future<void> loadFromApi() async {
+    if (isLoading) return;
     isLoading = true;
-    notifyListeners();
+    Future.microtask(() => notifyListeners());
 
     try {
       final data = await ApiService.fetchChatSessions();
@@ -511,7 +513,7 @@ class HistoryStore extends ChangeNotifier {
     }
 
     isLoading = false;
-    notifyListeners();
+    Future.microtask(() => notifyListeners());
   }
 
   void addSession(ChatSession session) {

@@ -196,12 +196,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _logout() {
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => LoginScreen(isDarkMode: widget.isDarkMode, onToggleTheme: widget.onToggleTheme),
-      ),
-      (route) => false,
-    );
+    context.go('/login');
   }
 
   @override

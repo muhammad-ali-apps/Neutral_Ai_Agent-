@@ -264,6 +264,7 @@ class ApiService{
     static Future<bool> logoutUser() async {
         SharedPreferences prefs = await SharedPreferences.getInstance();
         String? token = prefs.getString('token');
+        bool success = false;
         try {
             final response = await http.post(
                 Uri.parse('$baseUrl/auth/logout'),
@@ -273,20 +274,19 @@ class ApiService{
                     'Authorization': 'Bearer $token',
                 },
             );
-            if (response.statusCode == 200 || response.statusCode == 201) {
-                await prefs.remove('token');
-                await prefs.remove('userName');
-                await prefs.remove('userEmail');
-                await prefs.remove('userRole');
-                return true;
-            } else {
-                print('Logout failed: ${response.body}');
-                return false;
+            success = (response.statusCode == 200 || response.statusCode == 201);
+            if (!success) {
+                print('Logout response: ${response.body}');
             }
         } catch (e) {
             print('Error during logout: $e');
-            return false;
+        } finally {
+            await prefs.remove('token');
+            await prefs.remove('userName');
+            await prefs.remove('userEmail');
+            await prefs.remove('userRole');
         }
+        return success;
     }
 
     // ─── LLM Models CRUD ───
