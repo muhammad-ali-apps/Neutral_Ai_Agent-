@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app_theme.dart';
 import '../models.dart';
 import '../services/api_services.dart';
-import '../services/model_download_manager.dart';
 import 'package:go_router/go_router.dart';
 
 class NavItem {
@@ -272,15 +271,6 @@ class _SidebarState extends State<Sidebar> {
             ),
           ] else
             const Spacer(),
-
-          // Persistent Background Download Widget in Sidebar
-          if (!_isCollapsed)
-            _BackgroundDownloadCard(
-              onTap: () {
-                widget.onSelect(2);
-                widget.onClose?.call();
-              },
-            ),
 
           Divider(color: context.borderColor, height: 1),
           const SizedBox(height: 4),
@@ -932,27 +922,7 @@ class _NavTile extends StatelessWidget {
                       Icon(
                         icon,
                         size: 18,
-                        color: selected ? AppColors.purple : context.textSecondary,
                       ),
-                      if (label == 'Offline Mode')
-                        ListenableBuilder(
-                          listenable: modelDownloadManager,
-                          builder: (context, _) {
-                            if (!modelDownloadManager.hasActiveDownloads) return const SizedBox.shrink();
-                            return Positioned(
-                              top: -2,
-                              right: -2,
-                              child: Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: AppColors.purple,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
                     ],
                   ),
                 ),
@@ -996,159 +966,11 @@ class _NavTile extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (label == 'Offline Mode')
-                  ListenableBuilder(
-                    listenable: modelDownloadManager,
-                    builder: (context, _) {
-                      if (!modelDownloadManager.hasActiveDownloads) return const SizedBox.shrink();
-                      final firstId = modelDownloadManager.downloadingModelIds.first;
-                      final progress = modelDownloadManager.getProgress(firstId);
-                      final pct = ((progress?.percent ?? 0.01) * 100).toInt();
-
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.purple.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.purple.withValues(alpha: 0.35)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const SizedBox(
-                              width: 8,
-                              height: 8,
-                              child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.purple),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '$pct%',
-                              style: const TextStyle(
-                                color: AppColors.purple,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
               ],
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _BackgroundDownloadCard extends StatelessWidget {
-  final VoidCallback onTap;
-  const _BackgroundDownloadCard({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: modelDownloadManager,
-      builder: (context, _) {
-        if (!modelDownloadManager.hasActiveDownloads) return const SizedBox.shrink();
-        final firstId = modelDownloadManager.downloadingModelIds.first;
-        final progress = modelDownloadManager.getProgress(firstId);
-        if (progress == null) return const SizedBox.shrink();
-        final catModel = modelDownloadManager.getCatalogModel(firstId);
-        final displayName = catModel?.name ?? firstId;
-        final pct = (progress.percent * 100).toInt();
-
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: context.surface2,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.purple.withValues(alpha: 0.35)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.purple,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Downloading Model',
-                      style: TextStyle(
-                        color: context.textPrimary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '$pct%',
-                    style: const TextStyle(
-                      color: AppColors.purple,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 5),
-              Text(
-                displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: context.textSecondary, fontSize: 10.5),
-              ),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: LinearProgressIndicator(
-                  value: progress.isIndeterminate ? null : progress.percent,
-                  minHeight: 4,
-                  backgroundColor: context.surface,
-                  color: AppColors.purple,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    progress.progressSummary,
-                    style: TextStyle(color: context.textSecondary, fontSize: 9.5),
-                  ),
-                  InkWell(
-                    onTap: onTap,
-                    borderRadius: BorderRadius.circular(4),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      child: Text(
-                        'View',
-                        style: TextStyle(
-                          color: AppColors.purple,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

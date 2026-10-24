@@ -37,7 +37,6 @@ class _HomeShellState extends State<HomeShell> {
   final _comparisonKey = GlobalKey<ComparisonScreenState>();
   final _offlineKey = GlobalKey<OfflineModeScreenState>();
 
-  StreamSubscription? _downloadCompletedSub;
   StreamSubscription? _downloadErrorSub;
 
   @override
@@ -46,34 +45,6 @@ class _HomeShellState extends State<HomeShell> {
     modelStore.loadFromApi();
     historyStore.loadFromApi();
 
-    _downloadCompletedSub = modelDownloadManager.onModelCompleted.listen((modelId) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('Model "$modelId" downloaded successfully! Ready for offline use.'),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: 'Open Offline',
-            textColor: Colors.white,
-            onPressed: () {
-              setState(() {
-                _index = 2;
-                _adminSelected = false;
-              });
-            },
-          ),
-        ),
-      );
-    });
 
     _downloadErrorSub = modelDownloadManager.onModelError.listen((err) {
       if (!mounted) return;
@@ -89,7 +60,6 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
-    _downloadCompletedSub?.cancel();
     _downloadErrorSub?.cancel();
     super.dispose();
   }

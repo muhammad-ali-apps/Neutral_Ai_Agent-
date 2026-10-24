@@ -1,12 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../services/ollama_service.dart';
 import '../services/model_download_manager.dart';
 
-/// Modern, responsive dialog for managing offline Ollama AI models.
-/// Supports search, category filters, real-time background download progress,
-/// activation, and storage management.
+/// Modern popup dialog for managing offline Ollama AI models.
+/// Clean minimal design with category filtering, storage indicator, and download progress.
 class OfflineModelsManagerDialog extends StatefulWidget {
   final String? selectedModelTag;
   final ValueChanged<String>? onModelSelected;
@@ -21,42 +20,40 @@ class OfflineModelsManagerDialog extends StatefulWidget {
     this.isBottomSheet = false,
   });
 
-  /// Opens the dialog responsively (centered Dialog on Desktop/Tablet, ModalBottomSheet on Mobile).
+  /// Opens the dialog with a sleek pop-up scale and fade animation.
   static Future<void> show({
     required BuildContext context,
     String? selectedModelTag,
     ValueChanged<String>? onModelSelected,
     VoidCallback? onModelsChanged,
   }) {
-    final isDesktop = MediaQuery.of(context).size.width >= 640;
-    if (isDesktop) {
-      return showDialog(
-        context: context,
-        barrierDismissible: true,
-        builder: (ctx) => Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: OfflineModelsManagerDialog(
-            selectedModelTag: selectedModelTag,
-            onModelSelected: onModelSelected,
-            onModelsChanged: onModelsChanged,
+    return showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Models Manager',
+      barrierColor: Colors.black.withValues(alpha: 0.65),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (ctx, anim1, anim2, child) {
+        final curved = CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic);
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.92, end: 1.0).animate(curved),
+          child: FadeTransition(
+            opacity: curved,
+            child: child,
           ),
-        ),
-      );
-    } else {
-      return showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
+        );
+      },
+      pageBuilder: (ctx, anim1, anim2) => Dialog(
         backgroundColor: Colors.transparent,
-        builder: (ctx) => OfflineModelsManagerDialog(
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: OfflineModelsManagerDialog(
           selectedModelTag: selectedModelTag,
           onModelSelected: onModelSelected,
           onModelsChanged: onModelsChanged,
-          isBottomSheet: true,
         ),
-      );
-    }
+      ),
+    );
   }
 
   @override
@@ -65,10 +62,7 @@ class OfflineModelsManagerDialog extends StatefulWidget {
 
 class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog> {
   int _tabIndex = 0; // 0 = Catalog & Download, 1 = Installed on Disk
-  String _searchQuery = '';
   String _selectedCategory = 'All';
-
-  final TextEditingController _searchController = TextEditingController();
 
   List<InstalledModel> _installedModels = [];
   List<CatalogModel> _catalogModels = [];
@@ -86,12 +80,10 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
   @override
   void dispose() {
     modelDownloadManager.removeListener(_onDownloadManagerUpdated);
-    _searchController.dispose();
     super.dispose();
   }
 
   void _onDownloadManagerUpdated() {
-    // Re-check installed models if download finished
     if (mounted) setState(() {});
   }
 
@@ -154,7 +146,7 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Model "$modelId" removed from disk.'),
-              backgroundColor: AppColors.success,
+              backgroundColor: const Color(0xFF22C55E),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -165,21 +157,10 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
 
   List<CatalogModel> get _filteredCatalog {
     return _catalogModels.where((model) {
-      // Category filter
       if (_selectedCategory == 'Coding' && !model.routingTags.contains('coding')) return false;
       if (_selectedCategory == 'Reasoning' && !model.routingTags.contains('reasoning') && !model.routingTags.contains('math')) return false;
       if (_selectedCategory == 'General' && !model.routingTags.contains('general') && !model.routingTags.contains('chat')) return false;
       if (_selectedCategory == 'Low RAM' && model.minRamGb > 4) return false;
-
-      // Text query
-      if (_searchQuery.trim().isNotEmpty) {
-        final q = _searchQuery.toLowerCase();
-        final matchName = model.name.toLowerCase().contains(q);
-        final matchId = model.modelId.toLowerCase().contains(q);
-        final matchDesc = model.description.toLowerCase().contains(q);
-        final matchTags = model.routingTags.any((t) => t.toLowerCase().contains(q));
-        if (!matchName && !matchId && !matchDesc && !matchTags) return false;
-      }
       return true;
     }).toList();
   }
@@ -193,66 +174,44 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final isDesktop = media.size.width >= 640;
-    final dialogHeight = isDesktop
-        ? (media.size.height * 0.85).clamp(560.0, 780.0)
-        : media.size.height * 0.88;
+    final dialogHeight = (media.size.height * 0.82).clamp(480.0, 680.0);
 
     return Container(
       constraints: BoxConstraints(
-        maxWidth: 780,
+        maxWidth: 720,
         maxHeight: dialogHeight,
       ),
       decoration: BoxDecoration(
         color: context.surface,
-        borderRadius: widget.isBottomSheet
-            ? const BorderRadius.vertical(top: Radius.circular(24))
-            : BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: context.borderColor,
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.45),
-            blurRadius: 36,
-            spreadRadius: 6,
-            offset: const Offset(0, 10),
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 32,
+            spreadRadius: 4,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: widget.isBottomSheet
-            ? const BorderRadius.vertical(top: Radius.circular(24))
-            : BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         child: Column(
           children: [
-            // Mobile pull handle
-            if (widget.isBottomSheet)
-              Container(
-                margin: const EdgeInsets.only(top: 10, bottom: 4),
-                width: 44,
-                height: 4.5,
-                decoration: BoxDecoration(
-                  color: context.borderColor,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-
-            // Top Header Bar
-            _buildHeader(context),
-
-            // Storage & Local Engine Summary Bar
-            _buildEngineSummaryStrip(context),
-
-            // Segmented Tab Bar Switcher
-            _buildSegmentedTabBar(context),
+            // Top Bar: Tabs Switcher + Close Button (replaces the old header row)
+            _buildTopBar(context),
 
             // Content Area
             Expanded(
               child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.purple),
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: context.textPrimary,
+                      ),
                     )
                   : (_tabIndex == 0
                       ? _buildCatalogView(context)
@@ -264,206 +223,55 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
     );
   }
 
-  /// Modern header with title, subtitle, active downloads indicator, and close button
-  Widget _buildHeader(BuildContext context) {
+  /// Clean top bar with tabs switcher and close button
+  Widget _buildTopBar(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.purple.withValues(alpha: 0.22),
-                  AppColors.purpleDark.withValues(alpha: 0.10),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.purple.withValues(alpha: 0.35)),
-            ),
-            child: const Icon(
-              Icons.inventory_2_rounded,
-              color: AppColors.purple,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 12),
+          // Segmented Tabs
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      'Offline Models Manager',
-                      style: TextStyle(
-                        color: context.textPrimary,
-                        fontSize: 17.5,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.2,
-                      ),
+            child: Container(
+              height: 38,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: context.surface2,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: context.borderColor),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildTabPill(
+                      index: 0,
+                      title: 'Catalog (${_catalogModels.length})',
+                      icon: Icons.cloud_download_rounded,
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.purple.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.purple.withValues(alpha: 0.25)),
-                      ),
-                      child: const Text(
-                        'Ollama Engine',
-                        style: TextStyle(
-                          color: AppColors.purple,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Run open-weights AI models 100% offline & private on your device',
-                  style: TextStyle(
-                    color: context.textSecondary,
-                    fontSize: 12,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _buildTabPill(
+                      index: 1,
+                      title: 'Installed',
+                      icon: Icons.save_alt_rounded,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
 
-          // Active background download badge
-          ListenableBuilder(
-            listenable: modelDownloadManager,
-            builder: (context, _) {
-              if (!modelDownloadManager.hasActiveDownloads) return const SizedBox.shrink();
-              final count = modelDownloadManager.activeCount;
-              return Container(
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.purple.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppColors.purple,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$count Downloading',
-                      style: const TextStyle(
-                        color: AppColors.purple,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+          const SizedBox(width: 10),
 
+          // Close button
           IconButton(
             icon: const Icon(Icons.close_rounded, size: 20),
-            tooltip: 'Close',
+            tooltip: '',
             splashRadius: 18,
             color: context.textSecondary,
             onPressed: () => Navigator.of(context).pop(),
           ),
         ],
-      ),
-    );
-  }
-
-  /// Summary strip showing disk usage and persistent background download indicator
-  Widget _buildEngineSummaryStrip(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: context.surface2.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: context.borderColor.withValues(alpha: 0.6)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.storage_rounded, size: 14, color: context.textSecondary),
-          const SizedBox(width: 6),
-          Text(
-            'Disk Storage: ',
-            style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-          ),
-          Text(
-            '$_totalDiskSpaceFormatted used (${_installedModels.length} models)',
-            style: TextStyle(
-              color: context.textPrimary,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const Spacer(),
-          const Icon(Icons.all_inclusive_rounded, size: 14, color: AppColors.purple),
-          const SizedBox(width: 5),
-          const Text(
-            'Downloads continue in background when navigating',
-            style: TextStyle(
-              color: AppColors.purple,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Segmented pill tabs with badges
-  Widget _buildSegmentedTabBar(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-      child: Container(
-        height: 40,
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: context.surface2,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: context.borderColor),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: _buildTabPill(
-                index: 0,
-                title: 'Catalog & Download (${_catalogModels.length})',
-                icon: Icons.cloud_download_rounded,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: _buildTabPill(
-                index: 1,
-                title: 'Installed on Disk (${_installedModels.length})',
-                icon: Icons.save_alt_rounded,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -475,21 +283,21 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
   }) {
     final isSelected = _tabIndex == index;
     return InkWell(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(7),
       onTap: () => setState(() => _tabIndex = index),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 160),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: isSelected
-              ? (context.isDark ? const Color(0xFF2B2B2B) : Colors.white)
+              ? (context.isDark ? const Color(0xFF383838) : Colors.white)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(7),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 4,
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 3,
                     offset: const Offset(0, 1),
                   ),
                 ]
@@ -501,9 +309,9 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
             Icon(
               icon,
               size: 15,
-              color: isSelected ? AppColors.purple : context.textSecondary,
+              color: isSelected ? context.textPrimary : context.textSecondary,
             ),
-            const SizedBox(width: 7),
+            const SizedBox(width: 6),
             Text(
               title,
               style: TextStyle(
@@ -518,50 +326,28 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
     );
   }
 
-  /// Available Catalog Tab with search, category chips, and modern model cards
+  /// Catalog View with Storage on the left, Category chips on the right, and no search bar
   Widget _buildCatalogView(BuildContext context) {
     final filtered = _filteredCatalog;
 
     return Column(
       children: [
-        // Search & Category Filters
+        // Category Filters Row with Disk Storage on the Left (No icon, clean typography)
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-          child: Column(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+          child: Row(
             children: [
-              // Search input
-              Container(
-                height: 38,
-                decoration: BoxDecoration(
-                  color: context.surface2,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: context.borderColor),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  style: TextStyle(color: context.textPrimary, fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText: 'Search models (e.g. Llama, Coding, 4GB RAM)...',
-                    hintStyle: TextStyle(color: context.textSecondary, fontSize: 12.5),
-                    prefixIcon: Icon(Icons.search_rounded, size: 18, color: context.textSecondary),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded, size: 16),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                          )
-                        : null,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 9),
-                  ),
-                  onChanged: (val) => setState(() => _searchQuery = val),
+              // Left side: Storage info without icon (updates automatically after download)
+              Text(
+                'Storage: $_totalDiskSpaceFormatted used',
+                style: TextStyle(
+                  color: context.textSecondary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 8),
-
-              // Filter Chips
+              const Spacer(),
+              // Right side: Category Filter Chips
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -578,34 +364,22 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
           ),
         ),
 
-        const Divider(height: 16, thickness: 1),
+        const Divider(height: 1, thickness: 1),
 
         // Models List
         Expanded(
           child: filtered.isEmpty
               ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.search_off_rounded, size: 40, color: context.textSecondary.withValues(alpha: 0.5)),
-                      const SizedBox(height: 8),
-                      Text(
-                        'No matching models found',
-                        style: TextStyle(color: context.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Try clearing the search query or selecting "All".',
-                        style: TextStyle(color: context.textSecondary, fontSize: 12),
-                      ),
-                    ],
+                  child: Text(
+                    'No models found',
+                    style: TextStyle(color: context.textSecondary, fontSize: 13),
                   ),
                 )
               : ListenableBuilder(
                   listenable: modelDownloadManager,
                   builder: (context, _) {
                     return ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
                       itemCount: filtered.length,
                       itemBuilder: (context, i) => _buildCatalogCard(context, filtered[i]),
                     );
@@ -619,26 +393,28 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
   Widget _buildCategoryChip(String category) {
     final isSelected = _selectedCategory == category;
     return Padding(
-      padding: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.only(left: 6),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () => setState(() => _selectedCategory = category),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4.5),
           decoration: BoxDecoration(
             color: isSelected
-                ? AppColors.purple.withValues(alpha: 0.18)
+                ? (context.isDark ? Colors.white : Colors.black)
                 : context.surface2,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isSelected ? AppColors.purple : context.borderColor,
+              color: isSelected ? Colors.transparent : context.borderColor,
               width: 1,
             ),
           ),
           child: Text(
             category,
             style: TextStyle(
-              color: isSelected ? AppColors.purple : context.textSecondary,
+              color: isSelected
+                  ? (context.isDark ? Colors.black : Colors.white)
+                  : context.textSecondary,
               fontSize: 11.5,
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
             ),
@@ -648,24 +424,14 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
     );
   }
 
-  /// Model Card in Catalog Tab
+  /// Model Card in Catalog Tab (Neutral modern styling, no heavy green theme)
   Widget _buildCatalogCard(BuildContext context, CatalogModel item) {
     final isInstalled = _installedModels.any(
       (m) => m.modelTag == item.modelId || m.name.startsWith(item.modelId),
     );
     final isDownloading = modelDownloadManager.isDownloading(item.modelId);
+    final isPaused = modelDownloadManager.isPaused(item.modelId);
     final downloadProgress = modelDownloadManager.getProgress(item.modelId);
-
-    // Accent tier color
-    Color tierColor = AppColors.purple;
-    IconData tierIcon = Icons.bolt_rounded;
-    if (item.tier == 'balanced') {
-      tierColor = AppColors.geminiBlue;
-      tierIcon = Icons.auto_awesome_rounded;
-    } else if (item.tier == 'pro') {
-      tierColor = const Color(0xFF8B5CF6);
-      tierIcon = Icons.psychology_rounded;
-    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -675,100 +441,42 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isDownloading
-              ? AppColors.purple.withValues(alpha: 0.6)
-              : (isInstalled
-                  ? AppColors.success.withValues(alpha: 0.4)
-                  : context.borderColor),
-          width: isDownloading || isInstalled ? 1.4 : 1.0,
+              ? (context.isDark ? Colors.white70 : Colors.black87)
+              : context.borderColor,
+          width: isDownloading ? 1.4 : 1.0,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top Row: Icon, Title & Specs, Action Button
+          // Top Row: Title & Specs, Action Button
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: tierColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: tierColor.withValues(alpha: 0.25)),
-                ),
-                child: Icon(tierIcon, color: tierColor, size: 20),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            item.name,
-                            style: TextStyle(
-                              color: context.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        // Copyable tag pill
-                        InkWell(
-                          onTap: () {
-                            Clipboard.setData(ClipboardData(text: item.modelId));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Copied "${item.modelId}" to clipboard'),
-                                duration: const Duration(seconds: 1),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(4),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: context.surface,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: context.borderColor),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  item.modelId,
-                                  style: TextStyle(
-                                    color: context.textSecondary,
-                                    fontSize: 10,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                                const SizedBox(width: 3),
-                                Icon(Icons.copy_rounded, size: 9, color: context.textSecondary),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      item.name,
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
                     ),
                     const SizedBox(height: 5),
 
-                    // Specs Badges Row
+                    // Specs Badges Row without icons
                     Wrap(
                       spacing: 6,
                       runSpacing: 4,
                       children: [
-                        _buildSpecBadge(context, Icons.storage_rounded, item.size),
-                        _buildSpecBadge(context, Icons.memory_rounded, item.parameters),
+                        _buildSpecBadge(context, item.size),
+                        _buildSpecBadge(context, item.parameters),
                         _buildSpecBadge(
                           context,
-                          Icons.speed_rounded,
                           'Min ${item.minRamGb}GB RAM',
-                          isHighlight: item.minRamGb <= 4,
                         ),
                       ],
                     ),
@@ -785,21 +493,21 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.15),
+                        color: context.surface,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+                        border: Border.all(color: context.borderColor),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle_rounded, color: AppColors.success, size: 13),
-                          SizedBox(width: 4),
+                          Icon(Icons.check_rounded, color: context.textPrimary, size: 13),
+                          const SizedBox(width: 4),
                           Text(
                             'Ready',
                             style: TextStyle(
-                              color: AppColors.success,
+                              color: context.textPrimary,
                               fontSize: 11.5,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
@@ -811,12 +519,12 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                         widget.onModelSelected?.call(item.modelId);
                         Navigator.of(context).pop();
                       },
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                         child: Text(
                           'Use in Chat',
                           style: TextStyle(
-                            color: AppColors.purple,
+                            color: context.textPrimary,
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
@@ -832,26 +540,30 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: AppColors.purple.withValues(alpha: 0.15),
+                        color: context.surface,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.purple.withValues(alpha: 0.4)),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const SizedBox(
-                            width: 10,
-                            height: 10,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.purple,
+                          if (!isPaused) ...[
+                            SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: context.textPrimary,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 6),
+                            const SizedBox(width: 6),
+                          ],
                           Text(
-                            '${((downloadProgress?.percent ?? 0.01) * 100).toInt()}%',
-                            style: const TextStyle(
-                              color: AppColors.purple,
+                            isPaused
+                                ? 'Paused'
+                                : '${((downloadProgress?.percent ?? 0.01) * 100).toInt()}%',
+                            style: TextStyle(
+                              color: context.textPrimary,
                               fontSize: 11.5,
                               fontWeight: FontWeight.bold,
                             ),
@@ -860,19 +572,39 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                       ),
                     ),
                     const SizedBox(height: 4),
-                    InkWell(
-                      onTap: () => modelDownloadManager.cancelDownload(item.modelId),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        child: Text(
-                          'Cancel',
-                          style: TextStyle(
-                            color: Color(0xFFEF4444),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkWell(
+                          onTap: () => modelDownloadManager.togglePauseResume(item.modelId),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Text(
+                              isPaused ? 'Resume' : 'Pause',
+                              style: TextStyle(
+                                color: context.textPrimary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 6),
+                        InkWell(
+                          onTap: () => modelDownloadManager.cancelDownload(item.modelId),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Text(
+                              'Cancel',
+                              style: TextStyle(
+                                color: Color(0xFFEF4444),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 )
@@ -885,13 +617,13 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.purple,
-                    foregroundColor: Colors.white,
+                    backgroundColor: context.isDark ? Colors.white : const Color(0xFF171717),
+                    foregroundColor: context.isDark ? Colors.black : Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  icon: const Icon(Icons.download_rounded, size: 16),
+                  icon: const Icon(Icons.download_rounded, size: 15),
                   label: const Text(
                     'Download',
                     style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
@@ -899,35 +631,6 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                 ),
             ],
           ),
-
-          const SizedBox(height: 8),
-          Text(
-            item.description,
-            style: TextStyle(color: context.textSecondary, fontSize: 12.5, height: 1.35),
-          ),
-
-          // Routing tags
-          if (item.routingTags.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: item.routingTags.map((tag) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: context.surface,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: context.borderColor),
-                  ),
-                  child: Text(
-                    tag,
-                    style: TextStyle(color: context.textSecondary, fontSize: 10.5),
-                  ),
-                );
-              }).toList(),
-            ),
-          ],
 
           // Real-Time Background Progress Box
           if (isDownloading && downloadProgress != null) ...[
@@ -937,24 +640,24 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
               decoration: BoxDecoration(
                 color: context.surface,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.purple.withValues(alpha: 0.3)),
+                border: Border.all(color: context.borderColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.sync_rounded, size: 13, color: AppColors.purple),
-                      const SizedBox(width: 5),
                       Expanded(
-                        child: Text(
-                          downloadProgress.status,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.purple,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
+                        child: InkWell(
+                          onTap: () => modelDownloadManager.togglePauseResume(item.modelId),
+                          borderRadius: BorderRadius.circular(4),
+                          child: AnimatedDotsText(
+                            isPaused: isPaused,
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),
@@ -969,8 +672,8 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                       const SizedBox(width: 6),
                       Text(
                         '${(downloadProgress.percent * 100).toInt()}%',
-                        style: const TextStyle(
-                          color: AppColors.purple,
+                        style: TextStyle(
+                          color: context.textPrimary,
                           fontSize: 11.5,
                           fontWeight: FontWeight.bold,
                         ),
@@ -981,22 +684,15 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
-                      value: downloadProgress.isIndeterminate ? null : downloadProgress.percent,
-                      minHeight: 5,
+                      value: isPaused
+                          ? downloadProgress.percent
+                          : (downloadProgress.isIndeterminate ? null : downloadProgress.percent),
+                      minHeight: 4,
                       backgroundColor: context.surface2,
-                      color: AppColors.purple,
+                      color: isPaused
+                          ? context.textSecondary.withValues(alpha: 0.5)
+                          : (context.isDark ? Colors.white : Colors.black),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Icon(Icons.info_outline_rounded, size: 11, color: context.textSecondary),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Downloading in background. You can close this dialog or switch chats.',
-                        style: TextStyle(color: context.textSecondary, fontSize: 10),
-                      ),
-                    ],
                   ),
                 ],
               ),
@@ -1007,38 +703,21 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
     );
   }
 
-  Widget _buildSpecBadge(BuildContext context, IconData icon, String text, {bool isHighlight = false}) {
+  Widget _buildSpecBadge(BuildContext context, String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
       decoration: BoxDecoration(
-        color: isHighlight
-            ? AppColors.success.withValues(alpha: 0.12)
-            : context.surface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isHighlight
-              ? AppColors.success.withValues(alpha: 0.3)
-              : context.borderColor,
-        ),
+        border: Border.all(color: context.borderColor),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 11,
-            color: isHighlight ? AppColors.success : context.textSecondary,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
-              color: isHighlight ? AppColors.success : context.textSecondary,
-              fontSize: 10.5,
-              fontWeight: isHighlight ? FontWeight.w600 : FontWeight.normal,
-            ),
-          ),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          color: context.textSecondary,
+          fontSize: 10.5,
+          fontWeight: FontWeight.normal,
+        ),
       ),
     );
   }
@@ -1066,15 +745,15 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
             ),
             const SizedBox(height: 6),
             Text(
-              'Switch to the "Catalog & Download" tab to install your first offline AI model.',
+              'Switch to the "Catalog" tab to install your first offline AI model.',
               style: TextStyle(color: context.textSecondary, fontSize: 12.5),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: () => setState(() => _tabIndex = 0),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.purple,
-                foregroundColor: Colors.white,
+                backgroundColor: context.isDark ? Colors.white : Colors.black,
+                foregroundColor: context.isDark ? Colors.black : Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               icon: const Icon(Icons.arrow_back_rounded, size: 15),
@@ -1086,7 +765,7 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
       itemCount: _installedModels.length,
       itemBuilder: (context, i) {
         final m = _installedModels[i];
@@ -1099,27 +778,12 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
             color: context.surface2,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? AppColors.purple : context.borderColor,
+              color: isSelected ? (context.isDark ? Colors.white70 : Colors.black87) : context.borderColor,
               width: isSelected ? 1.4 : 1.0,
             ),
           ),
           child: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppColors.purple.withValues(alpha: 0.15)
-                      : context.surface,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.memory_rounded,
-                  color: isSelected ? AppColors.purple : context.textSecondary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1127,7 +791,7 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                     Row(
                       children: [
                         Text(
-                          m.name,
+                          _getModelDisplayName(m),
                           style: TextStyle(
                             color: context.textPrimary,
                             fontWeight: FontWeight.w700,
@@ -1139,13 +803,14 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppColors.purple.withValues(alpha: 0.15),
+                              color: context.surface,
                               borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: context.borderColor),
                             ),
-                            child: const Text(
+                            child: Text(
                               'Active in Chat',
                               style: TextStyle(
-                                color: AppColors.purple,
+                                color: context.textPrimary,
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -1171,8 +836,8 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
                     Navigator.of(context).pop();
                   },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.purple,
-                    side: const BorderSide(color: AppColors.purple),
+                    foregroundColor: context.textPrimary,
+                    side: BorderSide(color: context.borderColor),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
@@ -1199,7 +864,7 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
               const SizedBox(width: 6),
               IconButton(
                 icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 19),
-                tooltip: 'Delete from local disk',
+                tooltip: '',
                 splashRadius: 18,
                 onPressed: () => _deleteModel(m.modelTag),
               ),
@@ -1207,6 +872,130 @@ class _OfflineModelsManagerDialogState extends State<OfflineModelsManagerDialog>
           ),
         );
       },
+    );
+  }
+
+  String _getModelDisplayName(InstalledModel m) {
+    final tagLower = m.modelTag.toLowerCase().trim();
+    // 1. Check exact match in catalog
+    for (final c in _catalogModels) {
+      if (c.modelId.toLowerCase() == tagLower) {
+        return c.name;
+      }
+    }
+    // 2. Check base tag match in catalog (e.g. before colon)
+    final baseTag = tagLower.split(':').first;
+    for (final c in _catalogModels) {
+      if (c.modelId.toLowerCase().split(':').first == baseTag) {
+        return c.name;
+      }
+    }
+    // 3. Fallback to friendly formatted name
+    return _formatOfflineModelName(m.name);
+  }
+
+  String _formatOfflineModelName(String? raw) {
+    if (raw == null || raw.isEmpty) return 'Offline AI';
+    String clean = raw.trim();
+    if (clean.toLowerCase().startsWith('local:')) {
+      clean = clean.substring(6).trim();
+    }
+    final lower = clean.toLowerCase();
+    if (lower.startsWith('deepseek-r1') || lower.startsWith('deepseek -r1')) {
+      return 'DeepSeek-R1';
+    } else if (lower.startsWith('deepseek-coder')) {
+      return 'DeepSeek-Coder';
+    } else if (lower.startsWith('deepseek')) {
+      return 'DeepSeek';
+    } else if (lower.startsWith('llama3.2') || lower.startsWith('llama-3.2') || lower.startsWith('llama 3.2')) {
+      return 'Llama 3.2';
+    } else if (lower.startsWith('llama3.1') || lower.startsWith('llama-3.1') || lower.startsWith('llama 3.1')) {
+      return 'Llama 3.1';
+    } else if (lower.startsWith('llama3') || lower.startsWith('llama-3')) {
+      return 'Llama 3';
+    } else if (lower.startsWith('llama2') || lower.startsWith('llama-2')) {
+      return 'Llama 2';
+    } else if (lower.startsWith('qwen2.5-coder')) {
+      return 'Qwen 2.5 Coder';
+    } else if (lower.startsWith('qwen2.5') || lower.startsWith('qwen-2.5')) {
+      return 'Qwen 2.5';
+    } else if (lower.startsWith('qwen')) {
+      return 'Qwen';
+    } else if (lower.startsWith('mistral')) {
+      return 'Mistral';
+    } else if (lower.startsWith('phi3') || lower.startsWith('phi-3')) {
+      return 'Phi-3';
+    } else if (lower.startsWith('gemma2') || lower.startsWith('gemma-2')) {
+      return 'Gemma 2';
+    } else if (lower.startsWith('gemma')) {
+      return 'Gemma';
+    } else if (lower.startsWith('moondream')) {
+      return 'Moondream';
+    } else if (lower.startsWith('llava')) {
+      return 'LLaVA';
+    } else if (lower.startsWith('tinyllama')) {
+      return 'TinyLlama';
+    }
+
+    if (clean.contains(':')) {
+      clean = clean.split(':').first;
+    }
+    return clean.split(RegExp(r'[-_ ]')).map((w) {
+      if (w.isEmpty) return '';
+      return w[0].toUpperCase() + w.substring(1);
+    }).join(' ');
+  }
+}
+
+/// Animated 'Downloading...' / 'Paused...' text with cycling dots (1 -> 2 -> 3 -> 1)
+class AnimatedDotsText extends StatefulWidget {
+  final bool isPaused;
+  final TextStyle? style;
+
+  const AnimatedDotsText({
+    super.key,
+    required this.isPaused,
+    this.style,
+  });
+
+  @override
+  State<AnimatedDotsText> createState() => _AnimatedDotsTextState();
+}
+
+class _AnimatedDotsTextState extends State<AnimatedDotsText> {
+  int _dotCount = 1;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) {
+        setState(() {
+          _dotCount = (_dotCount % 3) + 1;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dots = '.' * _dotCount;
+    final baseText = widget.isPaused ? 'Paused' : 'Downloading';
+    return Text(
+      '$baseText$dots',
+      style: widget.style,
     );
   }
 }

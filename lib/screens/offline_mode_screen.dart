@@ -516,11 +516,12 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
   }
 
   Widget _buildTopBar(BuildContext context) {
+    final hasMessages = _session != null && _session!.messages.isNotEmpty;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: context.surface2,
-        border: Border(bottom: BorderSide(color: context.borderColor, width: 1)),
+        color: context.bg,
       ),
       child: SafeArea(
         bottom: false,
@@ -532,162 +533,91 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
                 onPressed: widget.onMenuTap,
                 color: context.textPrimary,
               ),
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: AppColors.purple.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.wifi_off_rounded, color: AppColors.purple, size: 20),
-            ),
-            const SizedBox(width: 10),
-            InkWell(
-              onTap: () {
-                if (_engineStatus == EngineStatus.notInstalled) {
-                  _startAutoInstall();
-                } else if (_engineStatus != EngineStatus.ready) {
-                  _initializeLocalEngine();
-                }
-              },
-              borderRadius: BorderRadius.circular(6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Offline Mode',
-                    style: TextStyle(
-                      color: context.textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _engineStatus == EngineStatus.ready
-                              ? AppColors.success
-                              : (_engineStatus == EngineStatus.installing ? Colors.blue : Colors.orange),
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Tooltip(
-                        message: _statusMessage,
-                        child: Text(
-                          _engineStatus == EngineStatus.ready
-                              ? 'Local Engine Active'
-                              : (_engineStatus == EngineStatus.installing
-                                  ? 'Installing (${(_installProgress * 100).toInt()}%)...'
-                                  : 'Engine Offline'),
-                          style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Spacer(),
 
-            // Active Model Picker Pill
-            if (_installedModels.isNotEmpty)
+            // Only show Offline Mode title & wifi icon in new chats
+            if (!hasMessages) ...[
               Container(
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: context.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: context.borderColor),
+                  color: AppColors.purple.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedModelTag,
-                    isDense: true,
-                    icon: Icon(Icons.arrow_drop_down_rounded, color: context.textSecondary, size: 20),
-                    dropdownColor: context.surface2,
-                    items: _installedModels.map((m) {
-                      return DropdownMenuItem<String>(
-                        value: m.modelTag,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.memory_rounded, size: 14, color: AppColors.purple),
-                            const SizedBox(width: 6),
-                            Text(
-                              m.name,
-                              style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _selectedModelTag = val);
-                      }
-                    },
-                  ),
-                ),
+                child: const Icon(Icons.wifi_off_rounded, color: AppColors.purple, size: 20),
               ),
-
-            // Live Background Download Indicator Pill
-            if (modelDownloadManager.hasActiveDownloads)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: InkWell(
-                  onTap: _showModelManagerModal,
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.purple.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.purple.withValues(alpha: 0.4)),
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: () {
+                  if (_engineStatus == EngineStatus.notInstalled) {
+                    _startAutoInstall();
+                  } else if (_engineStatus != EngineStatus.ready) {
+                    _initializeLocalEngine();
+                  }
+                },
+                borderRadius: BorderRadius.circular(6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Offline Mode',
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    Row(
                       children: [
-                        const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.purple,
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _engineStatus == EngineStatus.ready
+                                ? AppColors.success
+                                : (_engineStatus == EngineStatus.installing ? Colors.blue : Colors.orange),
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          modelDownloadManager.primaryDownloadSummary ?? 'Downloading...',
-                          style: const TextStyle(
-                            color: AppColors.purple,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.bold,
+                        const SizedBox(width: 5),
+                        Tooltip(
+                          message: _statusMessage,
+                          child: Text(
+                            _engineStatus == EngineStatus.ready
+                                ? 'Local Engine Active'
+                                : (_engineStatus == EngineStatus.installing
+                                    ? 'Installing (${(_installProgress * 100).toInt()}%)...'
+                                    : 'Engine Offline'),
+                            style: TextStyle(color: context.textSecondary, fontSize: 11.5),
                           ),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
               ),
+            ],
 
-            // Models Manager Button
-            ElevatedButton.icon(
-              onPressed: _showModelManagerModal,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.purple.withValues(alpha: 0.15),
-                foregroundColor: AppColors.purple,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.inventory_2_outlined, size: 16),
-              label: Text(
-                'Models (${_installedModels.length})',
-                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+            const Spacer(),
+
+            // Active Model Picker Pill (always visible in new chats and when prompt is sent)
+            _buildActiveModelSelector(context),
+
+            const SizedBox(width: 8),
+
+            // Models Manager Button (always visible in new chats and when prompt is sent)
+            InkWell(
+              onTap: _showModelManagerModal,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                child: Text(
+                  'Models',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
           ],
@@ -696,6 +626,98 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
     );
   }
 
+  Widget _buildActiveModelSelector(BuildContext context) {
+    final activeTag = _selectedModelTag ?? (_installedModels.isNotEmpty ? _installedModels.first.modelTag : null);
+    final activeDisplayName = activeTag != null ? _formatOfflineModelName(activeTag) : 'Select Model';
+
+    return PopupMenuButton<String>(
+      tooltip: '',
+      position: PopupMenuPosition.under,
+      offset: const Offset(0, 8),
+      borderRadius: BorderRadius.circular(8),
+      color: context.bg,
+      elevation: 0,
+      shadowColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide.none,
+      ),
+      constraints: const BoxConstraints(minWidth: 150, maxWidth: 220),
+      onSelected: (val) {
+        setState(() {
+          _selectedModelTag = val;
+        });
+      },
+      itemBuilder: (ctx) {
+        if (_installedModels.isEmpty) {
+          return [
+            PopupMenuItem<String>(
+              enabled: false,
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                'No models downloaded',
+                style: TextStyle(
+                  color: ctx.textSecondary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ),
+          ];
+        }
+
+        final List<PopupMenuEntry<String>> items = [];
+
+        for (final m in _installedModels) {
+          final isSelected = m.modelTag == activeTag;
+          final formattedName = _formatOfflineModelName(m.modelTag);
+
+          items.add(
+            PopupMenuItem<String>(
+              value: m.modelTag,
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                formattedName,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: ctx.textPrimary,
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
+                ),
+              ),
+            ),
+          );
+        }
+
+        return items;
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              activeDisplayName,
+              style: TextStyle(
+                color: context.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.2,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: context.textSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildScrollToBottomButton(BuildContext context) {
     return Positioned(
@@ -896,22 +918,6 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
                                 color: context.textPrimary,
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.success.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'Offline',
-                                style: TextStyle(
-                                  color: AppColors.success,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
                               ),
                             ),
                           ],

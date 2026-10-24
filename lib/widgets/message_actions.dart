@@ -82,12 +82,14 @@ class MessageEditBox extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onCancel;
   final VoidCallback onConfirm;
+  final String confirmText;
 
   const MessageEditBox({
     super.key,
     required this.controller,
     required this.onCancel,
     required this.onConfirm,
+    this.confirmText = 'Send',
   });
 
   @override
@@ -136,7 +138,7 @@ class MessageEditBox extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
                   ),
-                  child: const Text('Save & Regenerate', style: TextStyle(fontSize: 13)),
+                  child: Text(confirmText, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],
