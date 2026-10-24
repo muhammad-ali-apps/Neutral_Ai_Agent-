@@ -18,19 +18,20 @@ class OrbitApp extends StatefulWidget {
 }
 
 class _OrbitAppState extends State<OrbitApp> {
-  bool _isDarkMode = true;
-
-  void _toggleTheme() => setState(() => _isDarkMode = !_isDarkMode);
-
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'Orbit - AI Router',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      routerConfig: _router,
+    return ListenableBuilder(
+      listenable: themeController,
+      builder: (context, _) {
+        return MaterialApp.router(
+          title: 'Orbit - AI Router',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: themeController.isDark ? ThemeMode.dark : ThemeMode.light,
+          routerConfig: _router,
+        );
+      },
     );
   }
   
@@ -70,25 +71,25 @@ class _OrbitAppState extends State<OrbitApp> {
       GoRoute(
         path: '/login',
         builder: (BuildContext context, GoRouterState state) {
-          return  LoginScreen(isDarkMode: _isDarkMode, onToggleTheme: _toggleTheme); // Apne parameters theek kar lijiye ga
+          return LoginScreen(isDarkMode: themeController.isDark, onToggleTheme: themeController.toggle);
         },
       ),
       GoRoute(
         path: '/signup',
         builder: (BuildContext context, GoRouterState state) {
-          return  SignupScreen(isDarkMode: false, onToggleTheme: () {});
+          return SignupScreen(isDarkMode: !themeController.isDark, onToggleTheme: themeController.toggle);
         },
       ),
       GoRoute(
         path: '/home',
         builder: (BuildContext context, GoRouterState state) {
-          return  HomeShell(isDarkMode: _isDarkMode, onToggleTheme: _toggleTheme);
+          return HomeShell(isDarkMode: themeController.isDark, onToggleTheme: themeController.toggle);
         },
       ),
       GoRoute(
         path: '/admin-panel',
         builder: (BuildContext context, GoRouterState state) {
-          return  HomeShell(isDarkMode: _isDarkMode, onToggleTheme: _toggleTheme, startWithAdmin: true);
+          return HomeShell(isDarkMode: themeController.isDark, onToggleTheme: themeController.toggle, startWithAdmin: true);
         },
       ),
     ],

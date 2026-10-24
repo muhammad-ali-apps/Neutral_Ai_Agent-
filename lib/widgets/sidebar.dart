@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +32,7 @@ class Sidebar extends StatefulWidget {
   final VoidCallback? onClose;
   final String? activeSessionId;
   final ValueChanged<ChatSession> onSelectSession;
+  final bool isDrawer;
 
   const Sidebar({
     super.key,
@@ -45,6 +47,7 @@ class Sidebar extends StatefulWidget {
     required this.activeSessionId,
     required this.onSelectSession,
     this.onClose,
+    this.isDrawer = false,
   });
 
   @override
@@ -54,6 +57,7 @@ class Sidebar extends StatefulWidget {
 class _SidebarState extends State<Sidebar> {
   bool _isAdmin = false;
   bool _isCollapsed = false;
+  bool _isHistoryCollapsed = false;
 
   @override
   void initState() {
@@ -89,23 +93,20 @@ class _SidebarState extends State<Sidebar> {
   Widget build(BuildContext context) {
     final mode = _currentMode;
     final isDark = context.isDark;
+    final effectiveCollapsed = widget.isDrawer ? false : _isCollapsed;
+    final targetWidth = effectiveCollapsed ? 64.0 : 260.0;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      width: _isCollapsed ? 64 : 260,
-      color: context.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final sidebarContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
           // Header section
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
             child: Row(
               mainAxisAlignment:
-                  _isCollapsed ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
+                  effectiveCollapsed ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
               children: [
-                if (!_isCollapsed) ...[
+                if (!effectiveCollapsed) ...[
                   Row(
                     children: [
                       Container(
@@ -141,55 +142,72 @@ class _SidebarState extends State<Sidebar> {
                     ],
                   ),
                 ],
-                IconButton(
-                  tooltip: _isCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
-                  onPressed: () {
-                    setState(() {
-                      _isCollapsed = !_isCollapsed;
-                    });
-                  },
-                  icon: Icon(
-                    _isCollapsed ? Icons.view_sidebar_outlined : Icons.view_sidebar_rounded,
-                    color: context.textSecondary,
-                    size: 19,
+                if (widget.isDrawer)
+                  IconButton(
+                    tooltip: 'Close sidebar',
+                    onPressed: () => widget.onClose?.call(),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: context.textSecondary,
+                      size: 20,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  )
+                else
+                  IconButton(
+                    tooltip: effectiveCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
+                    onPressed: () {
+                      setState(() {
+                        _isCollapsed = !_isCollapsed;
+                      });
+                    },
+                    icon: Icon(
+                      effectiveCollapsed ? Icons.view_sidebar_outlined : Icons.view_sidebar_rounded,
+                      color: context.textSecondary,
+                      size: 19,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   ),
-                  padding: const EdgeInsets.all(6),
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                ),
               ],
             ),
           ),
 
-          // New Chat Button
+          // New Chat Button (ChatGPT style: transparent background, compose icon, no border)
           if (!widget.adminSelected)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              child: _isCollapsed
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              child: effectiveCollapsed
                   ? Tooltip(
                       message: 'New chat',
-                      child: InkWell(
+                      child: Material(
+                        color: Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
-                        onTap: () {
-                          widget.onNewChat();
-                          widget.onClose?.call();
-                        },
-                        child: Container(
-                          width: 44,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: isDark ? const Color(0xFF2F2F2F) : const Color(0xFFEBEBEB),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: context.borderColor,
-                              width: 1,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () {
+                            widget.onNewChat();
+                            widget.onClose?.call();
+                          },
+                          hoverColor: isDark
+                              ? Colors.white.withValues(alpha: 0.07)
+                              : Colors.black.withValues(alpha: 0.05),
+                          child: Container(
+                            width: 44,
+                            height: 38,
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.edit_square,
+                              color: context.textPrimary,
+                              size: 18,
                             ),
                           ),
-                          child: Icon(Icons.add_rounded, color: context.textPrimary, size: 20),
                         ),
                       ),
                     )
                   : Material(
-                      color: isDark ? const Color(0xFF212121) : const Color(0xFFF3F3F3),
+                      color: Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(8),
@@ -197,27 +215,27 @@ class _SidebarState extends State<Sidebar> {
                           widget.onNewChat();
                           widget.onClose?.call();
                         },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.08)
-                                  : Colors.black.withValues(alpha: 0.06),
-                              width: 1,
-                            ),
-                          ),
+                        hoverColor: isDark
+                            ? Colors.white.withValues(alpha: 0.07)
+                            : Colors.black.withValues(alpha: 0.05),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                           child: Row(
                             children: [
-                              Icon(Icons.add_rounded, color: context.textPrimary, size: 17),
-                              const SizedBox(width: 8),
-                              Text(
-                                'New chat',
-                                style: TextStyle(
-                                  color: context.textPrimary,
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 13,
+                              Icon(
+                                Icons.edit_square,
+                                color: context.textPrimary,
+                                size: 17,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'New chat',
+                                  style: TextStyle(
+                                    color: context.textPrimary,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
                             ],
@@ -226,7 +244,7 @@ class _SidebarState extends State<Sidebar> {
                       ),
                     ),
             ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
 
           // Navigation Items
           ...List.generate(navItems.length, (i) {
@@ -236,7 +254,7 @@ class _SidebarState extends State<Sidebar> {
               icon: item.icon,
               label: item.label,
               selected: selected,
-              isCollapsed: _isCollapsed,
+              isCollapsed: effectiveCollapsed,
               onTap: () {
                 widget.onSelect(i);
                 widget.onClose?.call();
@@ -244,105 +262,128 @@ class _SidebarState extends State<Sidebar> {
             );
           }),
 
-          // History Section
-          if (!_isCollapsed && mode != null) ...[
+          // History Section with "Recent" and collapsible ^ / v controller
+          if (!effectiveCollapsed && mode != null) ...[
             const SizedBox(height: 6),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
               child: Text(
                 'HISTORY',
                 style: TextStyle(
-                  color: context.textSecondary.withValues(alpha: 0.7),
+                  color: context.textSecondary.withValues(alpha: 0.65),
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.8,
                 ),
               ),
             ),
-            Expanded(
-              child: _HistoryList(
-                mode: mode,
-                activeSessionId: widget.activeSessionId,
-                onSelect: (s) {
-                  widget.onSelectSession(s);
-                  widget.onClose?.call();
-                },
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () {
+                    setState(() {
+                      _isHistoryCollapsed = !_isHistoryCollapsed;
+                    });
+                  },
+                  hoverColor: isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : Colors.black.withValues(alpha: 0.04),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Recent',
+                          style: TextStyle(
+                            color: context.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Icon(
+                          _isHistoryCollapsed
+                              ? Icons.keyboard_arrow_down_rounded
+                              : Icons.keyboard_arrow_up_rounded,
+                          size: 18,
+                          color: context.textSecondary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
+            if (!_isHistoryCollapsed)
+              Expanded(
+                child: _HistoryList(
+                  mode: mode,
+                  activeSessionId: widget.activeSessionId,
+                  onSelect: (s) {
+                    widget.onSelectSession(s);
+                    widget.onClose?.call();
+                  },
+                ),
+              )
+            else
+              const Spacer(),
           ] else
             const Spacer(),
 
           Divider(color: context.borderColor, height: 1),
-          const SizedBox(height: 4),
 
-          // Dark/Light Theme Toggle
-          _NavTile(
-            icon: widget.isDarkMode ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined,
-            label: widget.isDarkMode ? 'Light Mode' : 'Dark Mode',
-            selected: false,
-            isCollapsed: _isCollapsed,
-            onTap: widget.onToggleTheme,
-          ),
-
-          // Admin Panel
-          if (_isAdmin)
+          // Admin Panel (Theme toggle removed from sidebar as requested)
+          if (_isAdmin) ...[
             _NavTile(
               icon: Icons.settings_outlined,
               label: 'Admin Panel',
               selected: widget.adminSelected,
-              isCollapsed: _isCollapsed,
+              isCollapsed: effectiveCollapsed,
               onTap: () {
                 context.go('/admin-panel');
                 widget.onClose?.call();
               },
             ),
-
-          Divider(color: context.borderColor, height: 1),
+            Divider(color: context.borderColor, height: 1),
+          ],
 
           // Account Tile
           _AccountTile(
             onLogout: widget.onLogout,
-            isCollapsed: _isCollapsed,
+            isCollapsed: effectiveCollapsed,
           ),
           const SizedBox(height: 4),
         ],
-      ),
+      );
+
+    final innerContent = widget.isDrawer
+        ? sidebarContent
+        : OverflowBox(
+            minWidth: targetWidth,
+            maxWidth: targetWidth,
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: targetWidth,
+              child: sidebarContent,
+            ),
+          );
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      clipBehavior: Clip.hardEdge,
+      width: widget.isDrawer ? double.infinity : targetWidth,
+      color: context.surface,
+      child: innerContent,
     );
   }
 }
 
-String _getDateCategory(DateTime dateTime) {
-  final now = DateTime.now();
-  final todayStart = DateTime(now.year, now.month, now.day);
-  final yesterdayStart = todayStart.subtract(const Duration(days: 1));
-  final dateStart = DateTime(dateTime.year, dateTime.month, dateTime.day);
-
-  if (dateStart == todayStart) {
-    return 'Today';
-  } else if (dateStart == yesterdayStart) {
-    return 'Yesterday';
-  } else {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${dateTime.day} ${months[dateTime.month - 1]} ${dateTime.year}';
-  }
-}
-
-abstract class _HistoryItem {}
-
-class _HistoryHeaderItem extends _HistoryItem {
-  final String title;
-  _HistoryHeaderItem(this.title);
-}
-
-class _HistorySessionItem extends _HistoryItem {
-  final ChatSession session;
-  _HistorySessionItem(this.session);
-}
-
-/// Compact history list scoped to one chat mode.
+/// Compact history list scoped to one chat mode (without date headers).
 class _HistoryList extends StatefulWidget {
   final ChatMode mode;
   final String? activeSessionId;
@@ -462,39 +503,11 @@ class _HistoryListState extends State<_HistoryList> {
           );
         }
 
-        final items = <_HistoryItem>[];
-        String? lastGroupLabel;
-
-        for (final s in sessions) {
-          final groupLabel = _getDateCategory(s.updatedAt);
-          if (groupLabel != lastGroupLabel) {
-            items.add(_HistoryHeaderItem(groupLabel));
-            lastGroupLabel = groupLabel;
-          }
-          items.add(_HistorySessionItem(s));
-        }
-
         return ListView.builder(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          itemCount: items.length,
+          itemCount: sessions.length,
           itemBuilder: (context, i) {
-            final item = items[i];
-
-            if (item is _HistoryHeaderItem) {
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
-                child: Text(
-                  item.title,
-                  style: TextStyle(
-                    color: context.textSecondary.withValues(alpha: 0.6),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              );
-            }
-
-            final s = (item as _HistorySessionItem).session;
+            final s = sessions[i];
             final selected = s.id == widget.activeSessionId;
             final isEditing = _editingId == s.id;
             final isConfirming = _confirmDeleteId == s.id;
@@ -524,91 +537,101 @@ class _HistoryListState extends State<_HistoryList> {
               },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-                child: Material(
-                  color: selected
-                      ? (isDark ? const Color(0xFF2A2A2A) : const Color(0xFFECECEC))
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
-                  child: InkWell(
+                child: SizedBox(
+                  height: 32,
+                  child: Material(
+                    color: selected
+                        ? (isDark ? const Color(0xFF2A2A2A) : const Color(0xFFECECEC))
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(6),
-                    onTap: isEditing ? null : () => widget.onSelect(s),
-                    hoverColor: isDark
-                        ? Colors.white.withValues(alpha: 0.05)
-                        : Colors.black.withValues(alpha: 0.04),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 6, 2, 6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: isEditing
-                                ? _InlineRenameField(
-                                    controller: _controllerFor(s),
-                                    focusNode: _focusNodeFor(s),
-                                    onSubmit: () => _commitRename(s),
-                                    onCancel: _cancelRename,
-                                  )
-                                : Text(
-                                    s.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: context.textPrimary,
-                                      fontSize: 12.5,
-                                      fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: isEditing ? null : () => widget.onSelect(s),
+                      hoverColor: isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : Colors.black.withValues(alpha: 0.05),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: isEditing
+                                  ? _InlineRenameField(
+                                      controller: _controllerFor(s),
+                                      focusNode: _focusNodeFor(s),
+                                      onSubmit: () => _commitRename(s),
+                                      onCancel: _cancelRename,
+                                    )
+                                  : Text(
+                                      s.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: context.textPrimary,
+                                        fontSize: 12.5,
+                                        height: 1.2,
+                                        fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                                      ),
                                     ),
-                                  ),
-                          ),
-                          if (!isEditing)
-                            PopupMenuButton<String>(
-                              icon: Icon(
-                                Icons.more_horiz_rounded,
-                                size: 15,
-                                color: context.textSecondary,
-                              ),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-                              tooltip: '',
-                              color: context.surface2,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: BorderSide(color: context.borderColor),
-                              ),
-                              onSelected: (v) {
-                                if (v == 'rename') _startRename(s);
-                                if (v == 'delete') _requestDelete(s.id);
-                              },
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: 'rename',
-                                  height: 32,
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.edit_outlined, size: 14, color: context.textSecondary),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Rename',
-                                        style: TextStyle(color: context.textPrimary, fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'delete',
-                                  height: 32,
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.delete_outline_rounded, size: 14, color: Colors.redAccent),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        'Delete',
-                                        style: TextStyle(color: Colors.redAccent, fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
                             ),
-                        ],
+                            if (!isEditing)
+                              SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: PopupMenuButton<String>(
+                                  icon: Icon(
+                                    Icons.more_horiz_rounded,
+                                    size: 14,
+                                    color: context.textSecondary,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                                  splashRadius: 12,
+                                  tooltip: '',
+                                  color: context.surface2,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: BorderSide(color: context.borderColor),
+                                  ),
+                                  onSelected: (v) {
+                                    if (v == 'rename') _startRename(s);
+                                    if (v == 'delete') _requestDelete(s.id);
+                                  },
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem(
+                                      value: 'rename',
+                                      height: 30,
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.edit_outlined, size: 14, color: context.textSecondary),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Rename',
+                                            style: TextStyle(color: context.textPrimary, fontSize: 12),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const PopupMenuItem(
+                                      value: 'delete',
+                                      height: 30,
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.delete_outline_rounded, size: 14, color: Colors.redAccent),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Delete',
+                                            style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -879,7 +902,79 @@ class _AccountTileState extends State<_AccountTile> {
   }
 }
 
-class _NavTile extends StatelessWidget {
+class _MovingRedBorderPainter extends CustomPainter {
+  final double progress;
+  final double borderRadius;
+  final bool isDark;
+
+  const _MovingRedBorderPainter({
+    required this.progress,
+    required this.borderRadius,
+    required this.isDark,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final rect = Offset.zero & size;
+    final rrect = RRect.fromRectAndRadius(
+      rect.deflate(1.0),
+      Radius.circular(borderRadius),
+    );
+
+    // 1. Static subtle red guide outline
+    final trackPaint = Paint()
+      ..color = const Color(0xFFEF4444).withValues(alpha: isDark ? 0.22 : 0.16)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    canvas.drawRRect(rrect, trackPaint);
+
+    // 2. Rotating sweep gradient red beam
+    final sweepGradient = SweepGradient(
+      center: Alignment.center,
+      transform: GradientRotation(progress * 2 * math.pi),
+      colors: const [
+        Colors.transparent,
+        Color(0x00EF4444),
+        Color(0x44EF4444),
+        Color(0xFFEF4444),
+        Color(0xFFFF6666),
+        Color(0xFFEF4444),
+        Color(0x00EF4444),
+        Colors.transparent,
+      ],
+      stops: const [0.0, 0.65, 0.78, 0.88, 0.94, 0.98, 1.0, 1.0],
+    );
+
+    final shader = sweepGradient.createShader(rect);
+
+    // 3. Glowing neon beam halo
+    final glowPaint = Paint()
+      ..shader = shader
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.2
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+    canvas.drawRRect(rrect, glowPaint);
+
+    // 4. Sharp high-intensity laser line
+    final beamPaint = Paint()
+      ..shader = shader
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    canvas.drawRRect(rrect, beamPaint);
+  }
+
+  @override
+  bool shouldRepaint(_MovingRedBorderPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.isDark != isDark;
+  }
+}
+
+class _NavTile extends StatefulWidget {
   final IconData icon;
   final String label;
   final bool selected;
@@ -895,35 +990,82 @@ class _NavTile extends StatelessWidget {
   });
 
   @override
+  State<_NavTile> createState() => _NavTileState();
+}
+
+class _NavTileState extends State<_NavTile> with SingleTickerProviderStateMixin {
+  late final AnimationController _beamController;
+
+  @override
+  void initState() {
+    super.initState();
+    _beamController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    );
+    if (widget.selected) {
+      _beamController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _NavTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected && !_beamController.isAnimating) {
+      _beamController.repeat();
+    } else if (!widget.selected && _beamController.isAnimating) {
+      _beamController.stop();
+      _beamController.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _beamController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = context.isDark;
 
-    if (isCollapsed) {
+    if (widget.isCollapsed) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Center(
           child: Tooltip(
-            message: label,
-            child: Material(
-              color: selected
-                  ? (isDark ? const Color(0xFF2E2E2E) : const Color(0xFFE4E4E4))
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              child: InkWell(
+            message: widget.label,
+            child: AnimatedBuilder(
+              animation: _beamController,
+              builder: (context, child) {
+                if (!widget.selected) return child!;
+                return CustomPaint(
+                  painter: _MovingRedBorderPainter(
+                    progress: _beamController.value,
+                    borderRadius: 8,
+                    isDark: isDark,
+                  ),
+                  child: child,
+                );
+              },
+              child: Material(
+                color: Colors.transparent, // Selected container removed
                 borderRadius: BorderRadius.circular(8),
-                onTap: onTap,
-                child: Container(
-                  width: 44,
-                  height: 38,
-                  alignment: Alignment.center,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Icon(
-                        icon,
-                        size: 18,
-                      ),
-                    ],
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: widget.onTap,
+                  hoverColor: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.05),
+                  child: Container(
+                    width: 44,
+                    height: 38,
+                    alignment: Alignment.center,
+                    child: Icon(
+                      widget.icon,
+                      size: 18,
+                      color: widget.selected ? const Color(0xFFEF4444) : context.textSecondary,
+                    ),
                   ),
                 ),
               ),
@@ -934,39 +1076,51 @@ class _NavTile extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-      child: Material(
-        color: selected
-            ? (isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEBEBEB))
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(6),
-          onTap: onTap,
-          hoverColor: isDark
-              ? Colors.white.withValues(alpha: 0.05)
-              : Colors.black.withValues(alpha: 0.04),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7.5),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 17,
-                  color: selected ? AppColors.purple : context.textSecondary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: context.textPrimary,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                      fontSize: 13,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: AnimatedBuilder(
+        animation: _beamController,
+        builder: (context, child) {
+          if (!widget.selected) return child!;
+          return CustomPaint(
+            painter: _MovingRedBorderPainter(
+              progress: _beamController.value,
+              borderRadius: 7,
+              isDark: isDark,
+            ),
+            child: child,
+          );
+        },
+        child: Material(
+          color: Colors.transparent, // Selected container removed
+          borderRadius: BorderRadius.circular(7),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(7),
+            onTap: widget.onTap,
+            hoverColor: isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.black.withValues(alpha: 0.04),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7.5),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: 17,
+                    color: widget.selected ? const Color(0xFFEF4444) : context.textSecondary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: TextStyle(
+                        color: widget.selected ? context.textPrimary : context.textSecondary,
+                        fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

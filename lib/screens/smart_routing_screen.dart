@@ -16,7 +16,16 @@ import '../services/attachment_processor.dart';
 class SmartRoutingScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
   final ValueChanged<String?>? onSessionChanged;
-  const SmartRoutingScreen({super.key, this.onMenuTap, this.onSessionChanged});
+  final bool isDarkMode;
+  final VoidCallback? onToggleTheme;
+
+  const SmartRoutingScreen({
+    super.key,
+    this.onMenuTap,
+    this.onSessionChanged,
+    this.isDarkMode = true,
+    this.onToggleTheme,
+  });
 
   @override
   State<SmartRoutingScreen> createState() => SmartRoutingScreenState();
@@ -523,35 +532,44 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
             title: 'Smart Routing',
             subtitle: 'Auto route prompts to the best AI model for the task',
             onMenuTap: widget.onMenuTap,
-            trailing: ListenableBuilder(
-              listenable: modelStore,
-              builder: (context, _) {
-                final count = modelStore.active.length;
-                return InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: () => _showActiveModelsDialog(context),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.12),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.onToggleTheme != null) ...[
+                  _buildThemeSwitch(context),
+                  const SizedBox(width: 8),
+                ],
+                ListenableBuilder(
+                  listenable: modelStore,
+                  builder: (context, _) {
+                    final count = modelStore.active.length;
+                    return InkWell(
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CircleAvatar(radius: 3.5, backgroundColor: AppColors.success),
-                        const SizedBox(width: 6),
-                        Text('$count models active',
-                            style: const TextStyle(
-                                color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w600)),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.info_outline_rounded, size: 13, color: AppColors.success),
-                      ],
-                    ),
-                  ),
-                );
-              },
+                      onTap: () => _showActiveModelsDialog(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircleAvatar(radius: 3.5, backgroundColor: AppColors.success),
+                            const SizedBox(width: 6),
+                            Text('$count models active',
+                                style: const TextStyle(
+                                    color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w600)),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.info_outline_rounded, size: 13, color: AppColors.success),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -777,6 +795,82 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildThemeSwitch(BuildContext context) {
+    return ListenableBuilder(
+      listenable: themeController,
+      builder: (context, _) {
+        final isDark = themeController.isDark;
+        return Tooltip(
+          message: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () {
+              themeController.toggle();
+              widget.onToggleTheme?.call();
+            },
+            child: Container(
+              width: 52,
+              height: 28,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF222228) : const Color(0xFFE2E4EB),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.15)
+                      : Colors.black.withValues(alpha: 0.12),
+                  width: 1,
+                ),
+              ),
+              child: AnimatedAlign(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeInOut,
+                alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDark ? const Color(0xFF383844) : Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.18),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1.5),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      transitionBuilder: (child, anim) => RotationTransition(
+                        turns: anim,
+                        child: FadeTransition(opacity: anim, child: child),
+                      ),
+                      child: isDark
+                          ? const Icon(
+                              Icons.dark_mode_rounded,
+                              key: ValueKey('moon'),
+                              size: 13,
+                              color: Color(0xFFE2E8F0),
+                            )
+                          : const Icon(
+                              Icons.wb_sunny_rounded,
+                              key: ValueKey('sun'),
+                              size: 13,
+                              color: Color(0xFFF59E0B),
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -5,7 +5,6 @@ import '../models.dart';
 import '../services/api_services.dart';
 import '../services/model_download_manager.dart';
 import '../screens/admin_panel_screen.dart';
-import '../screens/auth/login_screen.dart';
 import '../screens/comparison_screen.dart';
 import '../screens/offline_mode_screen.dart';
 import '../screens/smart_routing_screen.dart';
@@ -98,6 +97,8 @@ class _HomeShellState extends State<HomeShell> {
           key: _smartKey,
           onMenuTap: onMenuTap,
           onSessionChanged: (id) => setState(() => _activeSessionIds[ChatMode.smartRouting] = id),
+          isDarkMode: themeController.isDark,
+          onToggleTheme: themeController.toggle,
         ),
         ComparisonScreen(
           key: _comparisonKey,
@@ -177,12 +178,13 @@ class _HomeShellState extends State<HomeShell> {
       final sidebar = Sidebar(
         selectedIndex: _index,
         adminSelected: _adminSelected,
-        isDarkMode: widget.isDarkMode,
-        onToggleTheme: widget.onToggleTheme,
+        isDarkMode: themeController.isDark,
+        onToggleTheme: themeController.toggle,
         onLogout: _logout,
         onNewChat: _newChat,
         activeSessionId: _activeSessionId,
         onSelectSession: _openSession,
+        isDrawer: isMobile,
         onSelect: (i) {
           if (widget.startWithAdmin) {
             context.go('/home');
@@ -205,7 +207,11 @@ class _HomeShellState extends State<HomeShell> {
         return Scaffold(
           key: _scaffoldKey,
           backgroundColor: context.bg,
-          drawer: Drawer(backgroundColor: context.surface, child: SafeArea(child: sidebar)),
+          drawer: Drawer(
+            backgroundColor: context.surface,
+            width: constraints.maxWidth < 340 ? constraints.maxWidth * 0.85 : 280,
+            child: SafeArea(child: sidebar),
+          ),
           body: SafeArea(
             child: _currentScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
           ),

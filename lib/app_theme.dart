@@ -74,3 +74,25 @@ extension AppColorsX on BuildContext {
   Color get bg => isDark ? AppColors.darkBg : AppColors.lightBg;
 }
 
+class ThemeController extends ChangeNotifier {
+  static final ThemeController instance = ThemeController._();
+  ThemeController._();
+
+  bool _isDark = true;
+  bool get isDark => _isDark;
+
+  void toggle() {
+    _isDark = !_isDark;
+    notifyListeners();
+  }
+
+  void setDark(bool val) {
+    if (_isDark != val) {
+      _isDark = val;
+      notifyListeners();
+    }
+  }
+}
+
+final themeController = ThemeController.instance;
+
