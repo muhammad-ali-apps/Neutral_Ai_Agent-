@@ -958,6 +958,8 @@ class OfflineModeScreenState extends State<OfflineModeScreen> with SingleTickerP
                           : FormattedMessageView(
                               text: m.text.isEmpty && _isGenerating ? 'Thinking...' : m.text,
                               isUser: false,
+                              fontSize: 14.5,
+                              height: 1.55,
                               textColor: context.textPrimary,
                             ),
                       const SizedBox(height: 6),

@@ -70,7 +70,7 @@ class AssistantMessageActions extends StatelessWidget {
           ],
           messageActionIcon(context, Icons.copy_rounded, onCopy, tooltip: 'Copy'),
           if (onRegenerate != null)
-            messageActionIcon(context, Icons.refresh_rounded, onRegenerate!, tooltip: 'Regenerate'),
+            messageActionIcon(context, Icons.refresh_rounded, onRegenerate!),
         ],
       ),
     );

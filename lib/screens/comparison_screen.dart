@@ -696,12 +696,14 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               children: [
                 if (m.attachments.isNotEmpty)
                   ChatAttachmentsView(attachments: m.attachments, isUser: true),
-                Text(
-                  m.text,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : const Color(0xFF1E1E1E),
-                    fontSize: 14.5,
-                    height: 1.5,
+                SelectionArea(
+                  child: Text(
+                    m.text,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : const Color(0xFF1E1E1E),
+                      fontSize: 14.5,
+                      height: 1.5,
+                    ),
                   ),
                 ),
               ],

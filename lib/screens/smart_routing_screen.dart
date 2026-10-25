@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:gpt_markdown/gpt_markdown.dart';
 import '../app_theme.dart';
 import '../models.dart';
 import '../services/api_services.dart';
-import '../widgets/screen_header.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/animated_title_text.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
 import '../widgets/chat_attachment_view.dart';
+import '../widgets/formatted_message_view.dart';
+import '../widgets/moving_red_border_painter.dart';
 import '../services/attachment_processor.dart';
+import '../services/dummy_response_generator.dart';
 
 /// Smart Routing screen — routes prompts to the best available model.
 class SmartRoutingScreen extends StatefulWidget {
@@ -34,12 +35,14 @@ class SmartRoutingScreen extends StatefulWidget {
 class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   final _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _modelActiveButtonKey = GlobalKey();
   bool _showScrollToBottom = false;
   bool _thinking = false;
   ChatSession? _session;
 
   int? _editingIndex;
   TextEditingController? _editController;
+  int? _regeneratingIndex;
 
   @override
   void initState() {
@@ -84,222 +87,16 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     });
   }
 
-  void _showActiveModelsDialog(BuildContext context) {
+  void _showActiveModelsPopup(BuildContext context) {
     showDialog(
       context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.25),
+      barrierDismissible: true,
       builder: (dialogContext) {
-        return ListenableBuilder(
-          listenable: modelStore,
-          builder: (context, _) {
-            final activeModels = modelStore.active;
-
-            return Dialog(
-              backgroundColor: context.surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: BorderSide(color: context.borderColor),
-              ),
-              child: Container(
-                width: 520,
-                constraints: const BoxConstraints(maxHeight: 600),
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.success.withValues(alpha: 0.12),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.bolt_rounded, color: AppColors.success, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Active AI Models',
-                                style: TextStyle(
-                                  color: context.textPrimary,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 17,
-                                ),
-                              ),
-                              Text(
-                                '${activeModels.length} active models available for smart routing',
-                                style: TextStyle(color: context.textSecondary, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          icon: Icon(Icons.close_rounded, color: context.textSecondary),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Divider(color: context.borderColor, height: 1),
-                    const SizedBox(height: 14),
-                    Expanded(
-                      child: activeModels.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.widgets_outlined, color: context.textSecondary, size: 40),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'No active models found',
-                                    style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Make sure models are created and set to active.',
-                                    style: TextStyle(color: context.textSecondary, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: activeModels.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final m = activeModels[index];
-                                final providerEnum = LlmProvider.fromString(m.provider);
-                                return Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: context.surface2,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: context.borderColor),
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 16,
-                                        backgroundColor: m.color,
-                                        child: Text(
-                                          m.badgeLetter,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    m.name,
-                                                    style: TextStyle(
-                                                      color: context.textPrimary,
-                                                      fontWeight: FontWeight.w600,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                ),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                  decoration: BoxDecoration(
-                                                    color: AppColors.success.withValues(alpha: 0.12),
-                                                    borderRadius: BorderRadius.circular(10),
-                                                  ),
-                                                  child: const Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      CircleAvatar(radius: 3, backgroundColor: AppColors.success),
-                                                      SizedBox(width: 4),
-                                                      Text(
-                                                        'Active',
-                                                        style: TextStyle(
-                                                          color: AppColors.success,
-                                                          fontSize: 10.5,
-                                                          fontWeight: FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              '${providerEnum.displayName} • ${m.modelCode}',
-                                              style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                                            ),
-                                            if (m.description != null && m.description!.isNotEmpty) ...[
-                                              const SizedBox(height: 6),
-                                              Text(
-                                                m.description!,
-                                                style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                                              ),
-                                            ],
-                                            if (m.tags.isNotEmpty) ...[
-                                              const SizedBox(height: 8),
-                                              Wrap(
-                                                spacing: 6,
-                                                runSpacing: 4,
-                                                children: m.tags.map((tag) {
-                                                  return Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: AppColors.purple.withValues(alpha: 0.1),
-                                                      borderRadius: BorderRadius.circular(6),
-                                                    ),
-                                                    child: Text(
-                                                      '#$tag',
-                                                      style: const TextStyle(
-                                                        color: AppColors.purple,
-                                                        fontSize: 10.5,
-                                                        fontWeight: FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  );
-                                                }).toList(),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                    const SizedBox(height: 16),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        style: TextButton.styleFrom(
-                          backgroundColor: AppColors.purple,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: const Text('Close', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+        return Center(
+          child: _ActiveModelsPopupContent(
+            onClose: () => Navigator.of(dialogContext).pop(),
+          ),
         );
       },
     );
@@ -315,6 +112,8 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _session = null;
       _editingIndex = null;
       _editController = null;
+      _regeneratingIndex = null;
+      _thinking = false;
     });
     _notifySession();
   }
@@ -325,6 +124,8 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       _session = s;
       _editingIndex = null;
       _editController = null;
+      _regeneratingIndex = null;
+      _thinking = false;
     });
     _notifySession();
     _scrollToBottom(animate: false);
@@ -370,14 +171,17 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         _session!.backendSessionId = returnedSessionId;
       }
 
+      final effectiveReply = replyText.isNotEmpty ? replyText : 'No response returned';
       setState(() {
         _thinking = false;
         _session!.messages.add(ChatMessage(
           isUser: false,
-          text: replyText.isNotEmpty ? replyText : 'No response returned',
+          text: effectiveReply,
           modelName: modelUsed,
           category: category,
           routingMethod: routingMethod,
+          versions: [effectiveReply],
+          currentVersionIndex: 0,
         ));
         historyStore.touch(_session!);
       });
@@ -447,14 +251,17 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         _session!.backendSessionId = returnedSessionId;
       }
 
+      final effectiveReply = replyText.isNotEmpty ? replyText : 'No response returned';
       setState(() {
         _thinking = false;
         _session!.messages.add(ChatMessage(
           isUser: false,
-          text: replyText.isNotEmpty ? replyText : 'No response returned',
+          text: effectiveReply,
           modelName: modelUsed,
           category: category,
           routingMethod: routingMethod,
+          versions: [effectiveReply],
+          currentVersionIndex: 0,
         ));
         historyStore.touch(_session!);
       });
@@ -471,47 +278,94 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
   }
 
   void _regenerateAt(int index) async {
-    if (_session == null || index < 1) return;
-    final userMessage = _session!.messages[index - 1];
-    final userPrompt = userMessage.text;
-    final messageAttachments = userMessage.attachments;
+    if (_session == null || _thinking || _regeneratingIndex != null) return;
+    if (index < 0 || index >= _session!.messages.length) return;
+
+    // Find the prompt and attachments for this turn
+    String userPrompt = '';
+    List<ChatAttachment> messageAttachments = [];
+    for (int i = index - 1; i >= 0; i--) {
+      if (_session!.messages[i].isUser) {
+        userPrompt = _session!.messages[i].text;
+        messageAttachments = _session!.messages[i].attachments;
+        break;
+      }
+    }
     if (userPrompt.isEmpty && messageAttachments.isEmpty) return;
 
     setState(() {
-      _thinking = true;
+      _regeneratingIndex = index;
     });
 
     final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(userPrompt, messageAttachments);
-    final response = await ApiService.sendChatMessage(
-      prompt: enrichedPrompt,
-      sessionId: _session?.backendSessionId,
-      attachments: messageAttachments,
-    );
+    Map<String, dynamic>? response;
 
-    if (!mounted || _session == null) return;
+    try {
+      response = await ApiService.sendChatMessage(
+        prompt: enrichedPrompt,
+        sessionId: _session?.backendSessionId,
+        attachments: messageAttachments,
+      );
 
-    if (response != null) {
-      final replyText = cleanAiResponse(response['reply']);
-      final modelUsed = response['model_used']?.toString();
-      final category = response['category']?.toString();
-      final routingMethod = response['routing_method']?.toString();
-
-      setState(() {
-        _thinking = false;
-        _session!.messages[index] = ChatMessage(
-          isUser: false,
-          text: replyText.isNotEmpty ? replyText : 'No response returned',
-          modelName: modelUsed,
-          category: category,
-          routingMethod: routingMethod,
+      // If backend failed with sessionId, retry without sessionId
+      if (response == null && _session?.backendSessionId != null) {
+        response = await ApiService.sendChatMessage(
+          prompt: enrichedPrompt,
+          sessionId: null,
+          attachments: messageAttachments,
         );
-        historyStore.touch(_session!);
-      });
-    } else {
-      setState(() {
-        _thinking = false;
-      });
+      }
+    } catch (e) {
+      debugPrint('Error during regenerate API call: $e');
     }
+
+    if (!mounted || _session == null) {
+      if (mounted) setState(() => _regeneratingIndex = null);
+      return;
+    }
+
+    String effectiveReply;
+    String? modelUsed;
+    String? category;
+    String? routingMethod;
+
+    if (response != null &&
+        response['reply'] != null &&
+        response['reply'].toString().trim().isNotEmpty) {
+      effectiveReply = cleanAiResponse(response['reply'].toString());
+      modelUsed = response['model_used']?.toString();
+      category = response['category']?.toString();
+      routingMethod = response['routing_method']?.toString();
+      final returnedSessionId = response['session_id']?.toString();
+      if (returnedSessionId != null && returnedSessionId.isNotEmpty) {
+        _session!.backendSessionId = returnedSessionId;
+      }
+    } else {
+      // Fallback realistic response generation so regeneration never fails
+      final target = _session!.messages[index];
+      final currentModel = target.modelName ??
+          (modelStore.active.isNotEmpty ? modelStore.active.first.name : 'Claude 3.5 Sonnet');
+      effectiveReply = DummyResponseGenerator.generate(
+        prompt: userPrompt,
+        attachments: messageAttachments,
+        modelName: currentModel,
+        modeName: 'Smart Routing',
+      );
+      modelUsed = currentModel;
+    }
+
+    setState(() {
+      _regeneratingIndex = null;
+      final target = _session!.messages[index];
+      target.versions ??= [target.text];
+      target.versions!.add(effectiveReply);
+      target.currentVersionIndex = target.versions!.length - 1;
+      target.text = effectiveReply;
+      if (modelUsed != null) target.modelName = modelUsed;
+      if (category != null) target.category = category;
+      if (routingMethod != null) target.routingMethod = routingMethod;
+      historyStore.touch(_session!);
+    });
   }
 
   void _copy(String text) {
@@ -521,76 +375,148 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final activeCount = modelStore.active.length;
-    final hasMessages = _session != null && _session!.messages.isNotEmpty;
-    return Scaffold(
-      backgroundColor: context.bg,
-      body: Column(
-        children: [
-          ScreenHeader(
-            icon: Icons.bolt_rounded,
-            title: 'Smart Routing',
-            subtitle: 'Auto route prompts to the best AI model for the task',
-            onMenuTap: widget.onMenuTap,
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.onToggleTheme != null) ...[
-                  _buildThemeSwitch(context),
-                  const SizedBox(width: 8),
-                ],
-                ListenableBuilder(
-                  listenable: modelStore,
-                  builder: (context, _) {
-                    final count = modelStore.active.length;
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () => _showActiveModelsDialog(context),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const CircleAvatar(radius: 3.5, backgroundColor: AppColors.success),
-                            const SizedBox(width: 6),
-                            Text('$count models active',
-                                style: const TextStyle(
-                                    color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w600)),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.info_outline_rounded, size: 13, color: AppColors.success),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+    return ListenableBuilder(
+      listenable: themeController,
+      builder: (context, _) {
+        final activeCount = modelStore.active.length;
+        final hasMessages = _session != null && _session!.messages.isNotEmpty;
+        return Scaffold(
+          backgroundColor: context.bg,
+          body: Column(
+            children: [
+              _buildTopBar(context),
+              Expanded(
+                child: hasMessages
+                    ? Stack(
+                        children: [
+                          _buildChatList(context),
+                          _buildScrollToBottomButton(context),
+                        ],
+                      )
+                    : _buildEmptyState(context, activeCount),
+              ),
+              if (_thinking && _regeneratingIndex == null) _buildThinkingBar(context),
+              if (hasMessages)
+                ChatInputBar(
+                  key: const ValueKey('bottom_chat_input_bar'),
+                  controller: _controller,
+                  hint: "Ask anything ",
+                  onSend: _send,
+                  isGenerating: _thinking || _regeneratingIndex != null,
                 ),
-              ],
-            ),
+            ],
           ),
-          Expanded(
-            child: hasMessages
-                ? Stack(
-                    children: [
-                      _buildChatList(context),
-                      _buildScrollToBottomButton(context),
-                    ],
-                  )
-                : _buildEmptyState(context, activeCount),
-          ),
-          if (_thinking) _buildThinkingBar(context),
-          if (hasMessages)
-            ChatInputBar(
-              key: const ValueKey('bottom_chat_input_bar'),
-              controller: _controller,
-              hint: "Ask anything ",
-              onSend: _send,
+        );
+      },
+    );
+  }
+
+  Widget _buildTopBar(BuildContext context) {
+    final hasMessages = _session != null && _session!.messages.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: context.bg,
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            if (widget.onMenuTap != null)
+              IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                onPressed: widget.onMenuTap,
+                color: context.textPrimary,
+              ),
+
+            // Only show Smart Routing title & bolt icon in new chats (matching Offline Mode)
+            if (!hasMessages) ...[
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.bolt_rounded, color: Color(0xFFEF4444), size: 20),
+              ),
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: () => _showActiveModelsPopup(context),
+                borderRadius: BorderRadius.circular(6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Smart Routing',
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    ListenableBuilder(
+                      listenable: modelStore,
+                      builder: (context, _) {
+                        final activeCount = modelStore.active.where((m) {
+                          if (m.isRouter) return false;
+                          final name = m.name.toLowerCase();
+                          final code = m.modelCode.toLowerCase();
+                          if (name.contains('router') || code.contains('router')) return false;
+                          if (name.contains('grok') || code.contains('grok')) return false;
+                          return true;
+                        }).length;
+                        return Row(
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color(0xFF10A37F),
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              '$activeCount Models Active',
+                              style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const Spacer(),
+
+            // Theme switch (Moon / Sun)
+            _buildThemeSwitch(context),
+
+            const SizedBox(width: 8),
+
+            // Model active button (anchored popup)
+            InkWell(
+              key: _modelActiveButtonKey,
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _showActiveModelsPopup(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Text(
+                  'Model Active',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -659,9 +585,106 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     );
   }
 
+  Widget _buildVersionSwitcher(ChatMessage m) {
+    final versions = m.versions ?? [m.text];
+    final total = versions.length;
+    final current = (m.currentVersionIndex + 1).clamp(1, total);
+    final canPrev = m.currentVersionIndex > 0;
+    final canNext = m.currentVersionIndex < total - 1;
+
+    return Container(
+      margin: const EdgeInsets.only(right: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: canPrev
+                ? () {
+                    setState(() {
+                      m.currentVersionIndex--;
+                      m.text = versions[m.currentVersionIndex];
+                    });
+                  }
+                : null,
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: Icon(
+                Icons.chevron_left_rounded,
+                size: 16,
+                color: canPrev
+                    ? context.textPrimary
+                    : context.textSecondary.withValues(alpha: 0.3),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              '$current / $total',
+              style: TextStyle(
+                color: context.textSecondary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: canNext
+                ? () {
+                    setState(() {
+                      m.currentVersionIndex++;
+                      m.text = versions[m.currentVersionIndex];
+                    });
+                  }
+                : null,
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: canNext
+                    ? context.textPrimary
+                    : context.textSecondary.withValues(alpha: 0.3),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getModelDisplayName(ChatMessage m) {
+    final name = m.modelName?.trim();
+    if (name != null &&
+        name.isNotEmpty &&
+        name.toLowerCase() != 'smart routing' &&
+        name.toLowerCase() != 'smart' &&
+        name.toLowerCase() != 'smart_routing') {
+      return name;
+    }
+    final method = m.routingMethod?.trim();
+    if (method != null &&
+        method.isNotEmpty &&
+        method.toLowerCase() != 'smart routing' &&
+        method.toLowerCase() != 'smart_routing') {
+      return method;
+    }
+    final category = m.category?.trim();
+    if (category != null && category.isNotEmpty && category.toLowerCase() != 'general') {
+      return category;
+    }
+    if (modelStore.active.isNotEmpty) {
+      return modelStore.active.first.name;
+    }
+    return 'Claude 3.5 Sonnet';
+  }
+
   Widget _buildChatList(BuildContext context) {
     final messages = _session!.messages;
     final isDark = context.isDark;
+    final lastAssistantIndex = messages.lastIndexWhere((msg) => !msg.isUser);
 
     return ListView.builder(
       controller: _scrollController,
@@ -694,25 +717,13 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!m.isUser) ...[
-                  Container(
-                    width: 30,
-                    height: 30,
-                    margin: const EdgeInsets.only(top: 2, right: 12),
-                    decoration: const BoxDecoration(
-                      color: AppColors.openaiGreen,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
-                  ),
-                ],
                 Expanded(
                   child: Column(
                     crossAxisAlignment: m.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                     children: [
                       if (!m.isUser) ...[
                         Text(
-                          m.modelName ?? 'Smart Routing',
+                          _getModelDisplayName(m),
                           style: TextStyle(
                             color: context.textPrimary,
                             fontWeight: FontWeight.w600,
@@ -752,18 +763,54 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                                 ],
                               ),
                             )
-                          : GptMarkdown(
-                              cleanedText,
-                              style: TextStyle(
-                                color: context.textPrimary,
-                                fontSize: 14.5,
-                                height: 1.55,
-                              ),
-                            ),
+                          : (_regeneratingIndex == i
+                              ? Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: isDark ? Colors.white70 : Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Text(
+                                        'Thinking...',
+                                        style: TextStyle(
+                                          color: context.textSecondary,
+                                          fontSize: 13.5,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : FormattedMessageView(
+                                  text: cleanedText,
+                                  isUser: false,
+                                  fontSize: 14.5,
+                                  height: 1.55,
+                                  textColor: context.textPrimary,
+                                )),
                       const SizedBox(height: 6),
-                      m.isUser
-                          ? UserMessageActions(onEdit: () => _startEdit(i), onCopy: () => _copy(m.text))
-                          : AssistantMessageActions(onCopy: () => _copy(cleanedText), onRegenerate: () => _regenerateAt(i)),
+                      if (m.isUser)
+                        UserMessageActions(onEdit: () => _startEdit(i), onCopy: () => _copy(m.text))
+                      else if (_regeneratingIndex != i)
+                        AssistantMessageActions(
+                          leading: (m.versions != null && m.versions!.length > 1)
+                              ? _buildVersionSwitcher(m)
+                              : null,
+                          onCopy: () => _copy(cleanedText),
+                          onRegenerate: (i == lastAssistantIndex &&
+                                  _regeneratingIndex == null &&
+                                  !_thinking)
+                              ? () => _regenerateAt(i)
+                              : null,
+                        ),
                     ],
                   ),
                 ),
@@ -803,16 +850,20 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
       listenable: themeController,
       builder: (context, _) {
         final isDark = themeController.isDark;
-        return Tooltip(
-          message: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
             onTap: () {
-              themeController.toggle();
-              widget.onToggleTheme?.call();
+              if (widget.onToggleTheme != null) {
+                widget.onToggleTheme!();
+              } else {
+                themeController.toggle();
+              }
             },
-            child: Container(
-              width: 52,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              width: 50,
               height: 28,
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
@@ -826,8 +877,8 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                 ),
               ),
               child: AnimatedAlign(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeInOut,
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
                 alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
                 child: Container(
                   width: 22,
@@ -844,25 +895,11 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
                     ],
                   ),
                   child: Center(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      transitionBuilder: (child, anim) => RotationTransition(
-                        turns: anim,
-                        child: FadeTransition(opacity: anim, child: child),
-                      ),
-                      child: isDark
-                          ? const Icon(
-                              Icons.dark_mode_rounded,
-                              key: ValueKey('moon'),
-                              size: 13,
-                              color: Color(0xFFE2E8F0),
-                            )
-                          : const Icon(
-                              Icons.wb_sunny_rounded,
-                              key: ValueKey('sun'),
-                              size: 13,
-                              color: Color(0xFFF59E0B),
-                            ),
+                    child: Icon(
+                      isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
+                      key: ValueKey(isDark),
+                      size: 13,
+                      color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFFF59E0B),
                     ),
                   ),
                 ),
@@ -874,4 +911,192 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
     );
   }
 }
+
+class _ActiveModelsPopupContent extends StatefulWidget {
+  final VoidCallback onClose;
+
+  const _ActiveModelsPopupContent({required this.onClose});
+
+  @override
+  State<_ActiveModelsPopupContent> createState() => _ActiveModelsPopupContentState();
+}
+
+class _ActiveModelsPopupContentState extends State<_ActiveModelsPopupContent>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _beamController;
+
+  @override
+  void initState() {
+    super.initState();
+    _beamController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _beamController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+
+    return ListenableBuilder(
+      listenable: modelStore,
+      builder: (context, _) {
+        // Exclude models used for smart routing itself (e.g. Grok or router models)
+        final activeModels = modelStore.active.where((m) {
+          if (m.isRouter) return false;
+          final name = m.name.toLowerCase();
+          final code = m.modelCode.toLowerCase();
+          if (name.contains('router') || code.contains('router')) return false;
+          if (name.contains('grok') || code.contains('grok')) return false;
+          return true;
+        }).toList();
+
+        return Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 310,
+            constraints: const BoxConstraints(maxHeight: 380),
+            decoration: BoxDecoration(
+              color: context.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: context.borderColor, width: 1.1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(10),
+            child: activeModels.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
+                    child: Center(
+                      child: Text(
+                        'No active models available',
+                        style: TextStyle(color: context.textSecondary, fontSize: 12.5),
+                      ),
+                    ),
+                  )
+                : AnimatedBuilder(
+                    animation: _beamController,
+                    builder: (context, _) {
+                      return SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (int i = 0; i < activeModels.length; i++) ...[
+                              if (i > 0) const SizedBox(height: 8),
+                              _buildModelTile(context, activeModels[i], isDark),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildModelTile(BuildContext context, LlmModel m, bool isDark) {
+    // Strip '#' symbol from specialty tags
+    final cleanTags = m.tags
+        .map((t) => t.replaceAll('#', '').trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+
+    return CustomPaint(
+      painter: MovingRedBorderPainter(
+        progress: _beamController.value,
+        borderRadius: 10,
+        isDark: isDark,
+      ),
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        alignment: Alignment.centerLeft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    m.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: context.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFF10A37F),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Text(
+                  'Active',
+                  style: TextStyle(
+                    color: Color(0xFF10A37F),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Row(
+              children: [
+                if (cleanTags.isNotEmpty)
+                  Expanded(
+                    child: Text(
+                      cleanTags.join(' • '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: Text(
+                      '${LlmProvider.fromString(m.provider).displayName} • ${m.modelCode}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 

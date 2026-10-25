@@ -172,62 +172,67 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final isMobile = constraints.maxWidth < _mobileBreakpoint;
+    return ListenableBuilder(
+      listenable: themeController,
+      builder: (context, _) {
+        return LayoutBuilder(builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < _mobileBreakpoint;
 
-      final sidebar = Sidebar(
-        selectedIndex: _index,
-        adminSelected: _adminSelected,
-        isDarkMode: themeController.isDark,
-        onToggleTheme: themeController.toggle,
-        onLogout: _logout,
-        onNewChat: _newChat,
-        activeSessionId: _activeSessionId,
-        onSelectSession: _openSession,
-        isDrawer: isMobile,
-        onSelect: (i) {
-          if (widget.startWithAdmin) {
-            context.go('/home');
-          } else {
-            setState(() {
-              _index = i;
-              _adminSelected = false;
-            });
+          final sidebar = Sidebar(
+            selectedIndex: _index,
+            adminSelected: _adminSelected,
+            isDarkMode: themeController.isDark,
+            onToggleTheme: themeController.toggle,
+            onLogout: _logout,
+            onNewChat: _newChat,
+            activeSessionId: _activeSessionId,
+            onSelectSession: _openSession,
+            isDrawer: isMobile,
+            onSelect: (i) {
+              if (widget.startWithAdmin) {
+                context.go('/home');
+              } else {
+                setState(() {
+                  _index = i;
+                  _adminSelected = false;
+                });
+              }
+            },
+            onAdminTap: () {
+              if (!widget.startWithAdmin) {
+                context.go('/admin-panel');
+              }
+            },
+            onClose: isMobile ? () => Navigator.of(context).maybePop() : null,
+          );
+
+          if (isMobile) {
+            return Scaffold(
+              key: _scaffoldKey,
+              backgroundColor: context.bg,
+              drawer: Drawer(
+                backgroundColor: context.surface,
+                width: constraints.maxWidth < 340 ? constraints.maxWidth * 0.85 : 280,
+                child: SafeArea(child: sidebar),
+              ),
+              body: SafeArea(
+                child: _currentScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
+              ),
+            );
           }
-        },
-        onAdminTap: () {
-          if (!widget.startWithAdmin) {
-            context.go('/admin-panel');
-          }
-        },
-        onClose: isMobile ? () => Navigator.of(context).maybePop() : null,
-      );
 
-      if (isMobile) {
-        return Scaffold(
-          key: _scaffoldKey,
-          backgroundColor: context.bg,
-          drawer: Drawer(
-            backgroundColor: context.surface,
-            width: constraints.maxWidth < 340 ? constraints.maxWidth * 0.85 : 280,
-            child: SafeArea(child: sidebar),
-          ),
-          body: SafeArea(
-            child: _currentScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
-          ),
-        );
-      }
-
-      return Scaffold(
-        backgroundColor: context.bg,
-        body: Row(
-          children: [
-            sidebar,
-            VerticalDivider(width: 1, color: context.borderColor),
-            Expanded(child: SafeArea(child: _currentScreen())),
-          ],
-        ),
-      );
-    });
+          return Scaffold(
+            backgroundColor: context.bg,
+            body: Row(
+              children: [
+                sidebar,
+                VerticalDivider(width: 1, color: context.borderColor),
+                Expanded(child: SafeArea(child: _currentScreen())),
+              ],
+            ),
+          );
+        });
+      },
+    );
   }
 }

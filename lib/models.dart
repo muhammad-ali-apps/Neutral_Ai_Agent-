@@ -431,7 +431,13 @@ class ChatSession {
   String get preview => messages.isEmpty ? 'New conversation' : messages.first.text;
 
   /// Create ChatSession from backend JSON response.
-  factory ChatSession.fromJson(Map<String, dynamic> json) {
+  factory ChatSession.fromJson(Map<String, dynamic> rawJson) {
+    final json = (rawJson['session'] is Map<String, dynamic>)
+        ? rawJson['session'] as Map<String, dynamic>
+        : ((rawJson['data'] is Map<String, dynamic>)
+            ? rawJson['data'] as Map<String, dynamic>
+            : rawJson);
+
     final rawId = json['_id'] is Map
         ? (json['_id']['\$oid'] ?? json['_id'].toString())
         : (json['_id'] ?? json['id'] ?? json['session_id'] ?? '').toString();
@@ -456,11 +462,24 @@ class ChatSession {
               msg['role'] == 'user' ||
               msg['isUser'] == true;
           final text = (msg['text'] ?? msg['content'] ?? msg['message'] ?? '').toString();
-          final modelName = msg['model_name'] ?? msg['model'] ?? msg['routed_model'];
+          final rawModel = msg['model_used'] ??
+              msg['model_name'] ??
+              msg['model'] ??
+              msg['routed_model'] ??
+              msg['modelName'] ??
+              msg['selected_model'] ??
+              msg['response_model'] ??
+              msg['engine'] ??
+              msg['ai_model'] ??
+              json['model_used'] ??
+              json['model_name'] ??
+              json['model'] ??
+              json['routed_model'];
+          final modelName = rawModel?.toString();
           parsedMessages.add(ChatMessage(
             isUser: isUser,
             text: text,
-            modelName: modelName?.toString(),
+            modelName: modelName,
             category: msg['category']?.toString(),
             routingMethod: msg['routing_method']?.toString(),
             latencyMs: msg['latency_ms'] != null ? double.tryParse(msg['latency_ms'].toString()) : null,
