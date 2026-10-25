@@ -461,31 +461,131 @@ class ChatSession {
           final isUser = msg['is_user'] == true ||
               msg['role'] == 'user' ||
               msg['isUser'] == true;
-          final text = (msg['text'] ?? msg['content'] ?? msg['message'] ?? '').toString();
-          final rawModel = msg['model_used'] ??
-              msg['model_name'] ??
-              msg['model'] ??
-              msg['routed_model'] ??
-              msg['modelName'] ??
-              msg['selected_model'] ??
-              msg['response_model'] ??
-              msg['engine'] ??
-              msg['ai_model'] ??
-              json['model_used'] ??
-              json['model_name'] ??
-              json['model'] ??
-              json['routed_model'];
-          final modelName = rawModel?.toString();
-          parsedMessages.add(ChatMessage(
-            isUser: isUser,
-            text: text,
-            modelName: modelName,
-            category: msg['category']?.toString(),
-            routingMethod: msg['routing_method']?.toString(),
-            latencyMs: msg['latency_ms'] != null ? double.tryParse(msg['latency_ms'].toString()) : null,
-            tokenUsage: msg['token_usage'] is Map ? Map<String, dynamic>.from(msg['token_usage']) : null,
-            status: msg['status']?.toString(),
-          ));
+
+          if (isUser) {
+            final text = (msg['content'] ??
+                    msg['text'] ??
+                    msg['message'] ??
+                    msg['prompt'] ??
+                    '')
+                .toString();
+            final attachments = <ChatAttachment>[];
+            if (msg['attachments'] is List) {
+              for (final att in (msg['attachments'] as List)) {
+                if (att is Map<String, dynamic>) {
+                  final name = att['name']?.toString() ?? 'Attachment';
+                  final size = att['sizeInBytes'] ?? att['size'];
+                  final isImg = att['isImage'] == true ||
+                      (att['fileType'] == 'image' ||
+                          att['fileType'] == 'screenshot' ||
+                          att['fileType'] == 'camera') ||
+                      name.toLowerCase().endsWith('.png') ||
+                      name.toLowerCase().endsWith('.jpg') ||
+                      name.toLowerCase().endsWith('.jpeg');
+                  attachments.add(ChatAttachment(
+                    name: name,
+                    path: att['path']?.toString(),
+                    isImage: isImg,
+                    fileType: att['fileType']?.toString() ??
+                        (isImg ? 'screenshot' : 'project'),
+                    sizeInBytes: size != null
+                        ? int.tryParse(size.toString())
+                        : null,
+                  ));
+                }
+              }
+            }
+            parsedMessages.add(ChatMessage(
+              isUser: true,
+              text: text,
+              attachments: attachments,
+            ));
+          } else {
+            // Assistant turn
+            final compList = msg['comparison_responses'] ?? msg['responses'];
+            if (compList is List && compList.isNotEmpty) {
+              for (final item in compList) {
+                if (item is Map<String, dynamic>) {
+                  final modelName = item['model_name']?.toString() ??
+                      item['model']?.toString() ??
+                      item['model_code']?.toString() ??
+                      'AI Model';
+                  final status = item['status']?.toString() ?? 'success';
+                  final reply = (item['reply'] ??
+                          item['response'] ??
+                          item['content'] ??
+                          item['text'] ??
+                          (status != 'success' ? item['error'] : ''))
+                      ?.toString() ??
+                      '';
+                  final latency = item['latency_ms'] != null
+                      ? double.tryParse(item['latency_ms'].toString())
+                      : null;
+                  final tokenUsage = item['token_usage'] is Map
+                      ? Map<String, dynamic>.from(item['token_usage'])
+                      : null;
+
+                  parsedMessages.add(ChatMessage(
+                    isUser: false,
+                    modelName: modelName,
+                    text: reply,
+                    latencyMs: latency,
+                    tokenUsage: tokenUsage,
+                    status: status,
+                    versions: [reply],
+                    versionLatencies: [latency],
+                    versionTokenUsages: [tokenUsage],
+                    currentVersionIndex: 0,
+                  ));
+                }
+              }
+            } else {
+              // Single model assistant message
+              final text = (msg['reply'] ??
+                      msg['content'] ??
+                      msg['text'] ??
+                      msg['response'] ??
+                      msg['message'] ??
+                      '')
+                  .toString();
+              final rawModel = msg['model_used'] ??
+                  msg['model_name'] ??
+                  msg['model'] ??
+                  msg['routed_model'] ??
+                  msg['modelName'] ??
+                  msg['selected_model'] ??
+                  msg['response_model'] ??
+                  msg['engine'] ??
+                  msg['ai_model'] ??
+                  json['model_used'] ??
+                  json['model_name'] ??
+                  json['model'] ??
+                  json['routed_model'];
+              final modelName = rawModel?.toString();
+              final latency = msg['latency_ms'] != null
+                  ? double.tryParse(msg['latency_ms'].toString())
+                  : null;
+              final tokenUsage = msg['token_usage'] is Map
+                  ? Map<String, dynamic>.from(msg['token_usage'])
+                  : null;
+              final versions = (msg['versions'] is List)
+                  ? (msg['versions'] as List).map((v) => v.toString()).toList()
+                  : [text];
+
+              parsedMessages.add(ChatMessage(
+                isUser: false,
+                text: text,
+                modelName: modelName,
+                category: msg['category']?.toString(),
+                routingMethod: msg['routing_method']?.toString(),
+                latencyMs: latency,
+                tokenUsage: tokenUsage,
+                status: msg['status']?.toString(),
+                versions: versions,
+                currentVersionIndex: 0,
+              ));
+            }
+          }
         }
       }
     }

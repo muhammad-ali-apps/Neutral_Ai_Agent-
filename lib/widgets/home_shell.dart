@@ -142,7 +142,9 @@ class _HomeShellState extends State<HomeShell> {
       _activeSessionIds[session.mode] = session.id;
     });
 
-    if (session.messages.isEmpty) {
+    final hasEmptyMessages = session.messages.isEmpty ||
+        session.messages.any((m) => !m.isUser && m.text.trim().isEmpty);
+    if (hasEmptyMessages) {
       final targetId = session.backendSessionId ?? session.id;
       final fullData = await ApiService.fetchChatSessionById(targetId);
       if (fullData != null) {

@@ -171,7 +171,9 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         _session!.backendSessionId = returnedSessionId;
       }
 
-      final effectiveReply = replyText.isNotEmpty ? replyText : 'No response returned';
+      final effectiveReply = replyText.isNotEmpty
+          ? replyText
+          : (response['error']?.toString() ?? 'No response returned from model.');
       setState(() {
         _thinking = false;
         _session!.messages.add(ChatMessage(
@@ -251,7 +253,9 @@ class SmartRoutingScreenState extends State<SmartRoutingScreen> {
         _session!.backendSessionId = returnedSessionId;
       }
 
-      final effectiveReply = replyText.isNotEmpty ? replyText : 'No response returned';
+      final effectiveReply = replyText.isNotEmpty
+          ? replyText
+          : (response['error']?.toString() ?? 'No response returned from model.');
       setState(() {
         _thinking = false;
         _session!.messages.add(ChatMessage(

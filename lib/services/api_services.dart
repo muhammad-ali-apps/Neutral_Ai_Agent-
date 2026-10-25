@@ -448,7 +448,9 @@ class ApiService{
         String mode = 'smart',
         List<String>? selectedModels,
         List<ChatAttachment>? attachments,
+        http.Client? client,
     }) async {
+        final httpClient = client ?? http.Client();
         try {
             final headers = await _authHeaders();
 
@@ -470,26 +472,44 @@ class ApiService{
                 if (base64Images.isNotEmpty) 'images': base64Images,
                 if (attachmentsPayload.isNotEmpty) 'attachments': attachmentsPayload,
             };
-            final response = await http.post(
+            final response = await httpClient.post(
                 Uri.parse('$baseUrl/chat/send'),
                 headers: headers,
                 body: json.encode(bodyMap),
-            );
+            ).timeout(const Duration(seconds: 90));
+
             if (response.statusCode == 200 || response.statusCode == 201) {
                 print('Chat response received: ${response.body}');
                 var resMap = json.decode(response.body) as Map<String, dynamic>;
-                if (resMap.containsKey('reply')) {
+                if (resMap.containsKey('reply') && resMap['reply'] != null) {
                   resMap['reply'] = cleanAiResponse(resMap['reply']);
+                }
+                if (resMap['responses'] is List) {
+                  for (final item in (resMap['responses'] as List)) {
+                    if (item is Map && item.containsKey('reply') && item['reply'] != null) {
+                      item['reply'] = cleanAiResponse(item['reply']);
+                    }
+                  }
                 }
                 return resMap;
             } else {
                 print('Chat send failed: ${response.statusCode}');
                 print('Error Body: ${response.body}');
-                return null;
+                try {
+                  final errMap = json.decode(response.body);
+                  if (errMap is Map<String, dynamic>) {
+                    return errMap;
+                  }
+                } catch (_) {}
+                return {'error': 'Server error ${response.statusCode}'};
             }
         } catch (e) {
             print('Error sending chat message: $e');
             return null;
+        } finally {
+            if (client == null) {
+                httpClient.close();
+            }
         }
     }
 

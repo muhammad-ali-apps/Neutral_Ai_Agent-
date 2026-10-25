@@ -1,10 +1,11 @@
+import 'package:http/http.dart' as http;
 import '../widgets/animated_title_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../models.dart';
 import '../services/api_services.dart';
-import '../widgets/screen_header.dart';
+import '../widgets/moving_red_border_painter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/message_actions.dart';
 import '../widgets/copy_toast.dart';
@@ -28,6 +29,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _showScrollToBottom = false;
   final Set<String> _selected = <String>{};
+  final Set<String> _appliedModelIds = <String>{};
   ChatSession? _session;
   bool _thinking = false;
 
@@ -37,6 +39,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
 
   int? _editingIndex;
   TextEditingController? _editController;
+  http.Client? _activeClient;
 
   @override
   void initState() {
@@ -47,10 +50,20 @@ class ComparisonScreenState extends State<ComparisonScreen> {
 
   @override
   void dispose() {
+    _activeClient?.close();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _stopGeneration() {
+    _activeClient?.close();
+    _activeClient = null;
+    setState(() {
+      _thinking = false;
+      _thinkingCardKeys.clear();
+    });
   }
 
   void _onScroll() {
@@ -93,6 +106,8 @@ class ComparisonScreenState extends State<ComparisonScreen> {
         setState(() {
           _selected.clear();
           _selected.addAll(savedIds);
+          _appliedModelIds.clear();
+          _appliedModelIds.addAll(savedIds);
         });
         return;
       }
@@ -110,6 +125,8 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       for (final m in toSelect.take(2)) {
         _selected.add(m.id);
       }
+      _appliedModelIds.clear();
+      _appliedModelIds.addAll(_selected);
     });
   }
 
@@ -160,6 +177,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   }
 
   void _send(String text, List<ChatAttachment> attachments) async {
+    if (_thinking || _thinkingCardKeys.isNotEmpty) return;
     if (text.trim().isEmpty && attachments.isEmpty) return;
     final modelsToUse = _selectedModels;
     if (modelsToUse.isEmpty) {
@@ -192,6 +210,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     _notifySession();
     _scrollToBottom();
 
+    _activeClient = http.Client();
     final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(text, attachments);
     final response = await ApiService.sendChatMessage(
       prompt: enrichedPrompt,
@@ -199,6 +218,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       mode: 'compare',
       selectedModels: selectedIds,
       attachments: attachments,
+      client: _activeClient,
     );
 
     if (!mounted || _session == null) return;
@@ -243,7 +263,8 @@ class ComparisonScreenState extends State<ComparisonScreen> {
         } else {
           _session!.messages.add(ChatMessage(
             isUser: false,
-            text: 'No model responses returned from backend.',
+            text: response['error']?.toString() ??
+                'No model responses returned from backend.',
             status: 'error',
           ));
         }
@@ -251,16 +272,19 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       });
       _scrollToBottom();
     } else {
-      setState(() {
-        _thinking = false;
-        _session!.messages.add(ChatMessage(
-          isUser: false,
-          text: 'Failed to connect to AI comparison server. Please check backend connection.',
-          status: 'error',
-        ));
-        historyStore.touch(_session!);
-      });
-      _scrollToBottom();
+      if (!mounted || _session == null) return;
+      if (_thinking) {
+        setState(() {
+          _thinking = false;
+          _session!.messages.add(ChatMessage(
+            isUser: false,
+            text: 'Failed to connect to AI comparison server. Please check backend connection.',
+            status: 'error',
+          ));
+          historyStore.touch(_session!);
+        });
+        _scrollToBottom();
+      }
     }
   }
 
@@ -279,6 +303,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   }
 
   void _confirmEdit(int index) async {
+    if (_thinking || _thinkingCardKeys.isNotEmpty) return;
     final newText = _editController!.text.trim();
     if (newText.isEmpty) return;
     final modelsToUse = _selectedModels;
@@ -366,6 +391,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   /// Single model per-container regeneration.
   /// Only regenerates the targeted model without touching any other model in that turn!
   void _regenerateSingleModel(int index, ChatMessage msg) async {
+    if (_thinking || _thinkingCardKeys.isNotEmpty) return;
     if (_session == null || index < 1) return;
 
     // Find the prompt and attachments associated with this turn
@@ -391,6 +417,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       _thinkingCardKeys.add(cardKey);
     });
 
+    _activeClient = http.Client();
     final enrichedPrompt = AttachmentProcessor.buildEnrichedPrompt(prompt, messageAttachments);
     final response = await ApiService.sendChatMessage(
       prompt: enrichedPrompt,
@@ -398,6 +425,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       mode: 'compare',
       selectedModels: [modelId],
       attachments: messageAttachments,
+      client: _activeClient,
     );
 
     if (!mounted || _session == null) {
@@ -466,34 +494,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       endDrawer: _buildModelDrawer(context),
       body: Column(
         children: [
-          ScreenHeader(
-            icon: Icons.grid_view_rounded,
-            title: 'Comparison Mode',
-            subtitle: 'Compare responses from multiple AI models side by side',
-            onMenuTap: widget.onMenuTap,
-            trailing: IconButton(
-              tooltip: 'Select models',
-              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-              icon: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(Icons.view_sidebar_rounded, color: context.textSecondary),
-                  if (_selectedModels.isNotEmpty)
-                    Positioned(
-                      right: -2,
-                      top: -2,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: const BoxDecoration(color: AppColors.purple, shape: BoxShape.circle),
-                        constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
-                        child: Text('${_selectedModels.length}',
-                            textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 9)),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
+          _buildTopBar(context),
           if (_selectedModels.isNotEmpty) _buildSelectedBar(context),
           Expanded(
             child: hasMessages
@@ -511,10 +512,101 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               controller: _controller,
               hint: _selectedModels.isEmpty
                   ? 'Select models to compare...'
-                  : 'Ask anything to compare selected models...',
+                  : 'Ask anything',
+              isGenerating: _thinking || _thinkingCardKeys.isNotEmpty,
+              onStop: _stopGeneration,
               onSend: _send,
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTopBar(BuildContext context) {
+    final hasMessages = _session != null && _session!.messages.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: context.bg,
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            if (widget.onMenuTap != null)
+              IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                onPressed: widget.onMenuTap,
+                color: context.textPrimary,
+              ),
+
+            // Only show title & icon in new chats (matching Smart Routing & Offline Mode)
+            if (!hasMessages) ...[
+              InkWell(
+                onTap: () => _scaffoldKey.currentState?.openEndDrawer(),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.compare_arrows_rounded, color: Color(0xFFEF4444), size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Comparison Mode',
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Color(0xFF10A37F),
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'Compare Models',
+                                style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            const Spacer(),
+
+            // Sidebar icon without quantity badge
+            IconButton(
+              tooltip: 'Select models',
+              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+              icon: Icon(Icons.view_sidebar_rounded, color: context.textSecondary),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -523,22 +615,36 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     return ListenableBuilder(
       listenable: modelStore,
       builder: (context, _) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: context.borderColor))),
+        width: double.infinity,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _selectedModels
-              .map((m) => Chip(
-                    avatar: CircleAvatar(
-                        radius: 9,
-                        backgroundColor: m.color,
-                        child: Text(m.badgeLetter, style: const TextStyle(fontSize: 9, color: Colors.white))),
-                    backgroundColor: AppColors.purple.withValues(alpha: 0.12),
-                    label: Text(m.name, style: const TextStyle(color: AppColors.purple, fontSize: 12)),
-                    side: BorderSide.none,
-                  ))
-              .toList(),
+          alignment: WrapAlignment.center,
+          runAlignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            for (int i = 0; i < _selectedModels.length; i++) ...[
+              if (i > 0)
+                Text(
+                  '•',
+                  style: TextStyle(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.6),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              Text(
+                _selectedModels[i].name,
+                style: const TextStyle(
+                  color: Color(0xFFEF4444),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -564,7 +670,9 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                 controller: _controller,
                 hint: _selectedModels.isEmpty
                     ? 'Select models to compare...'
-                    : 'Ask anything to compare selected models...',
+                    : 'Ask anything',
+                isGenerating: _thinking || _thinkingCardKeys.isNotEmpty,
+                onStop: _stopGeneration,
                 onSend: _send,
               ),
             ],
@@ -640,7 +748,8 @@ class ComparisonScreenState extends State<ComparisonScreen> {
           group.add(MapEntry(i, messages[i]));
           i++;
         }
-        widgets.add(_responseGroup(context, group));
+        final isLastGroup = i == messages.length;
+        widgets.add(_responseGroup(context, group, isLastGroup: isLastGroup));
       }
     }
 
@@ -734,22 +843,13 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               decoration: BoxDecoration(
                 color: context.surface2,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.purple.withValues(alpha: 0.35), width: 1.2),
+                border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.35), width: 1.2),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 11,
-                        backgroundColor: m.color,
-                        child: Text(
-                          m.badgeLetter,
-                          style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           m.name,
@@ -759,7 +859,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: AppColors.purple.withValues(alpha: 0.12),
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Row(
@@ -768,12 +868,12 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                             SizedBox(
                               width: 10,
                               height: 10,
-                              child: CircularProgressIndicator(strokeWidth: 1.8, color: AppColors.purple),
+                              child: CircularProgressIndicator(strokeWidth: 1.8, color: Color(0xFFEF4444)),
                             ),
                             SizedBox(width: 6),
                             Text(
                               'Thinking...',
-                              style: TextStyle(color: AppColors.purple, fontSize: 11, fontWeight: FontWeight.w600),
+                              style: TextStyle(color: Color(0xFFEF4444), fontSize: 11, fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
@@ -789,7 +889,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                           const SizedBox(
                             width: 22,
                             height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2.0, color: AppColors.purple),
+                            child: CircularProgressIndicator(strokeWidth: 2.0, color: Color(0xFFEF4444)),
                           ),
                           const SizedBox(height: 10),
                           Text(
@@ -882,7 +982,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
     );
   }
 
-  Widget _responseGroup(BuildContext context, List<MapEntry<int, ChatMessage>> group) {
+  Widget _responseGroup(BuildContext context, List<MapEntry<int, ChatMessage>> group, {bool isLastGroup = true}) {
     final isDark = context.isDark;
 
     // Check if any model container in this turn is expanded in focus mode
@@ -902,54 +1002,25 @@ class ComparisonScreenState extends State<ComparisonScreen> {
       final cardKey = '${index}_${m.modelName}';
       final isThinking = _thinkingCardKeys.contains(cardKey);
 
-      final model = modelStore.models.where((e) => e.name == m.modelName).toList();
-      final color = model.isNotEmpty ? model.first.color : AppColors.purple;
-      final letter = model.isNotEmpty ? model.first.badgeLetter : '?';
-      final isError = m.status == 'error';
-
       return Padding(
         padding: const EdgeInsets.only(bottom: 16),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
+        child: Container(
           width: double.infinity,
           height: 580.0,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: context.surface2,
+            color: Colors.transparent,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isError
-                  ? Colors.redAccent.withValues(alpha: 0.5)
-                  : AppColors.purple.withValues(alpha: 0.6),
-              width: 1.5,
+              color: const Color(0xFFEF4444).withValues(alpha: 0.6),
+              width: 1.0,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.06),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  CircleAvatar(
-                    radius: 12,
-                    backgroundColor: color,
-                    child: Text(
-                      letter,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       m.modelName ?? 'AI Model',
@@ -973,20 +1044,20 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
-                        color: AppColors.purple.withValues(alpha: 0.12),
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.bolt_rounded, size: 11, color: AppColors.purple),
+                          const Icon(Icons.bolt_rounded, size: 11, color: Color(0xFFEF4444)),
                           const SizedBox(width: 2),
                           Text(
                             m.latencyMs! >= 1000
                                 ? '${(m.latencyMs! / 1000).toStringAsFixed(2)}s'
                                 : '${m.latencyMs!.toStringAsFixed(0)}ms',
                             style: const TextStyle(
-                              color: AppColors.purple,
+                              color: Color(0xFFEF4444),
                               fontSize: 10.5,
                               fontWeight: FontWeight.w600,
                             ),
@@ -997,9 +1068,28 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                     const SizedBox(width: 6),
                   ],
 
+                  // Token usage chip in expanded view
+                  if (m.tokenUsage != null && m.tokenUsage!['total_tokens'] != null) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: context.borderColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${m.tokenUsage!['total_tokens']} t',
+                        style: TextStyle(
+                          color: context.textSecondary,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+
                   // Restore Height Button (Unhides other models and restores horizontal view)
                   IconButton(
-                    tooltip: 'Restore height',
                     onPressed: () {
                       setState(() {
                         _expandedContainers.remove(cardKey);
@@ -1010,7 +1100,7 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                     constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                     icon: const Icon(
                       Icons.fullscreen_exit_rounded,
-                      color: AppColors.purple,
+                      color: Color(0xFFEF4444),
                     ),
                   ),
                 ],
@@ -1026,11 +1116,11 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                             const SizedBox(
                               width: 24,
                               height: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.purple),
+                              child: CircularProgressIndicator(strokeWidth: 2.2, color: Color(0xFFEF4444)),
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              'Regenerating response for ${m.modelName}...',
+                              'Thinking...',
                               style: TextStyle(
                                 color: context.textSecondary,
                                 fontSize: 13,
@@ -1053,7 +1143,9 @@ class ComparisonScreenState extends State<ComparisonScreen> {
               const SizedBox(height: 4),
               AssistantMessageActions(
                 onCopy: () => _copy(m.text),
-                onRegenerate: () => _regenerateSingleModel(index, m),
+                onRegenerate: isLastGroup && !_thinking && _thinkingCardKeys.isEmpty
+                    ? () => _regenerateSingleModel(index, m)
+                    : null,
               ),
             ],
           ),
@@ -1077,13 +1169,10 @@ class ComparisonScreenState extends State<ComparisonScreen> {
             final isCollapsed = _collapsedContainers.contains(cardKey);
             final isThinking = _thinkingCardKeys.contains(cardKey);
 
-            final model = modelStore.models.where((e) => e.name == m.modelName).toList();
-            final color = model.isNotEmpty ? model.first.color : AppColors.purple;
-            final letter = model.isNotEmpty ? model.first.badgeLetter : '?';
             final isError = m.status == 'error';
 
             const double cardWidth = 360.0;
-            final double cardHeight = isCollapsed ? 54.0 : 380.0;
+            const double cardHeight = 380.0;
 
             return AnimatedContainer(
               duration: const Duration(milliseconds: 200),
@@ -1099,17 +1188,16 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                   color: isError
                       ? Colors.redAccent.withValues(alpha: 0.5)
                       : (isThinking
-                          ? AppColors.purple.withValues(alpha: 0.5)
+                          ? const Color(0xFFEF4444).withValues(alpha: 0.5)
                           : context.borderColor),
                   width: isThinking ? 1.4 : 1.0,
                 ),
                 boxShadow: [
-                  if (!isCollapsed)
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
                 ],
               ),
               child: Column(
@@ -1117,19 +1205,6 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                 children: [
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 11,
-                        backgroundColor: color,
-                        child: Text(
-                          letter,
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           m.modelName ?? 'AI Model',
@@ -1144,94 +1219,70 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                       ),
                       
                       // Version Switcher < 1/2 >
-                      if (!isCollapsed && m.versions != null && m.versions!.length > 1) ...[
+                      if (m.versions != null && m.versions!.length > 1) ...[
                         _buildVersionSwitcher(context, m),
                         const SizedBox(width: 4),
                       ],
 
-                      if (!isCollapsed) ...[
-                        if (m.latencyMs != null) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.purple.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.bolt_rounded, size: 10, color: AppColors.purple),
-                                const SizedBox(width: 2),
-                                Text(
-                                  m.latencyMs! >= 1000
-                                      ? '${(m.latencyMs! / 1000).toStringAsFixed(2)}s'
-                                      : '${m.latencyMs!.toStringAsFixed(0)}ms',
-                                  style: const TextStyle(
-                                    color: AppColors.purple,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                      if (m.latencyMs != null) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.bolt_rounded, size: 10, color: Color(0xFFEF4444)),
+                              const SizedBox(width: 2),
+                              Text(
+                                m.latencyMs! >= 1000
+                                    ? '${(m.latencyMs! / 1000).toStringAsFixed(2)}s'
+                                    : '${m.latencyMs!.toStringAsFixed(0)}ms',
+                                style: const TextStyle(
+                                  color: Color(0xFFEF4444),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        if (m.tokenUsage != null && m.tokenUsage!['total_tokens'] != null) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: context.borderColor,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '${m.tokenUsage!['total_tokens']} t',
-                              style: TextStyle(
-                                color: context.textSecondary,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
                               ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      if (m.tokenUsage != null && m.tokenUsage!['total_tokens'] != null) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: context.borderColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${m.tokenUsage!['total_tokens']} t',
+                            style: TextStyle(
+                              color: context.textSecondary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          const SizedBox(width: 4),
-                        ],
+                        ),
+                        const SizedBox(width: 4),
                       ],
 
                       // Expand Height Button (Hides all other models and expands this model to full view)
-                      if (!isCollapsed)
-                        IconButton(
-                          tooltip: 'Expand height',
-                          onPressed: () {
-                            setState(() {
-                              _expandedContainers.add(cardKey);
-                            });
-                          },
-                          iconSize: 16,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-                          icon: Icon(
-                            Icons.fullscreen_rounded,
-                            color: context.textSecondary,
-                          ),
-                        ),
-
-                      // Unexpand / Collapse Toggle Button
+                      // Tooltip removed per user request
                       IconButton(
-                        tooltip: isCollapsed ? 'Expand response' : 'Collapse response',
                         onPressed: () {
                           setState(() {
-                            if (isCollapsed) {
-                              _collapsedContainers.remove(cardKey);
-                            } else {
-                              _collapsedContainers.add(cardKey);
-                            }
+                            _expandedContainers.add(cardKey);
                           });
                         },
-                        iconSize: 18,
+                        iconSize: 16,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                         icon: Icon(
-                          isCollapsed ? Icons.keyboard_arrow_down_rounded : Icons.keyboard_arrow_up_rounded,
+                          Icons.fullscreen_rounded,
                           color: context.textSecondary,
                         ),
                       ),
@@ -1248,11 +1299,11 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                                   const SizedBox(
                                     width: 22,
                                     height: 22,
-                                    child: CircularProgressIndicator(strokeWidth: 2.0, color: AppColors.purple),
+                                    child: CircularProgressIndicator(strokeWidth: 2.0, color: Color(0xFFEF4444)),
                                   ),
                                   const SizedBox(height: 10),
                                   Text(
-                                    'Regenerating response...',
+                                    'Thinking...',
                                     style: TextStyle(
                                       color: context.textSecondary,
                                       fontSize: 12,
@@ -1275,7 +1326,9 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                     const SizedBox(height: 4),
                     AssistantMessageActions(
                       onCopy: () => _copy(m.text),
-                      onRegenerate: () => _regenerateSingleModel(index, m),
+                      onRegenerate: isLastGroup && !_thinking && _thinkingCardKeys.isEmpty
+                          ? () => _regenerateSingleModel(index, m)
+                          : null,
                     ),
                   ],
                 ],
@@ -1288,32 +1341,204 @@ class ComparisonScreenState extends State<ComparisonScreen> {
   }
 
   Widget _buildModelDrawer(BuildContext context) {
-    final screenW = MediaQuery.of(context).size.width;
+    final screenW = MediaQuery.sizeOf(context).width;
+
+    // Compact, sleek drawer width (shortened for a balanced, attractive look)
+    final double drawerWidth;
+    if (screenW < 360) {
+      drawerWidth = screenW * 0.84;
+    } else if (screenW < 600) {
+      drawerWidth = 270.0;
+    } else {
+      drawerWidth = 285.0;
+    }
+
     return Drawer(
       backgroundColor: context.surface,
-      width: screenW < 340 ? screenW * 0.88 : 300,
+      width: drawerWidth,
       child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 10, 10),
-              child: Row(
-                children: [
-                  const Icon(Icons.view_sidebar_rounded, color: AppColors.purple, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text('Select Models',
-                        style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
+        child: _ComparisonModelDrawer(
+          initialSelected: _selected,
+          appliedIds: _appliedModelIds,
+          onApply: (newSelection) {
+            setState(() {
+              _selected.clear();
+              _selected.addAll(newSelection);
+              _appliedModelIds.clear();
+              _appliedModelIds.addAll(newSelection);
+            });
+            _persistModelSelection();
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ComparisonModelDrawer extends StatefulWidget {
+  final Set<String> initialSelected;
+  final Set<String> appliedIds;
+  final ValueChanged<Set<String>> onApply;
+
+  const _ComparisonModelDrawer({
+    required this.initialSelected,
+    required this.appliedIds,
+    required this.onApply,
+  });
+
+  @override
+  State<_ComparisonModelDrawer> createState() => _ComparisonModelDrawerState();
+}
+
+class _ComparisonModelDrawerState extends State<_ComparisonModelDrawer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _beamController;
+  late final Set<String> _draftSelected;
+
+  @override
+  void initState() {
+    super.initState();
+    _draftSelected = Set<String>.from(widget.initialSelected);
+    _beamController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _beamController.dispose();
+    super.dispose();
+  }
+
+  Widget _buildModelTile(
+    BuildContext context,
+    LlmModel m,
+    bool isSelected,
+    bool isApplied,
+    bool isDark, {
+    required double minHeight,
+    required double nameFontSize,
+    required double providerFontSize,
+    required double dotFontSize,
+    required bool isCompact,
+  }) {
+    final providerEnum = LlmProvider.fromString(m.provider);
+
+    final innerContent = Container(
+      constraints: BoxConstraints(minHeight: minHeight),
+      padding: EdgeInsets.symmetric(
+        horizontal: isCompact ? 12 : 15,
+        vertical: isCompact ? 6 : 8,
+      ),
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          RichText(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: m.name,
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: nameFontSize,
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: Icon(Icons.close_rounded, color: context.textSecondary),
+                ),
+                if (isApplied)
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 6, bottom: 4),
+                      child: Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Color(0xFF10A37F),
+                        ),
+                      ),
+                    ),
                   ),
-                ],
-              ),
+              ],
             ),
-            Divider(color: context.borderColor, height: 1),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            providerEnum.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: context.textSecondary,
+              fontSize: providerFontSize,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          if (_draftSelected.contains(m.id)) {
+            _draftSelected.remove(m.id);
+          } else {
+            _draftSelected.add(m.id);
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: isSelected
+          ? CustomPaint(
+              painter: MovingRedBorderPainter(
+                progress: _beamController.value,
+                borderRadius: 10,
+                isDark: isDark,
+              ),
+              child: innerContent,
+            )
+          : Container(
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: context.borderColor.withValues(alpha: 0.5),
+                  width: 1.0,
+                ),
+              ),
+              child: innerContent,
+            ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+        final isCompact = availableWidth < 340;
+        final isSpacious = availableWidth >= 420;
+
+        final horizontalPadding = isCompact ? 12.0 : (isSpacious ? 20.0 : 16.0);
+        final topPadding = isCompact ? 14.0 : 20.0;
+        final bottomPadding = isCompact ? 12.0 : 16.0;
+        final tileMinHeight = isCompact ? 50.0 : (isSpacious ? 56.0 : 52.0);
+        final nameFontSize = isCompact ? 13.0 : (isSpacious ? 14.5 : 13.5);
+        final providerFontSize = isCompact ? 10.5 : (isSpacious ? 12.0 : 11.0);
+        final dotFontSize = isCompact ? 16.0 : (isSpacious ? 20.0 : 18.0);
+        final applyButtonHeight = isCompact ? 44.0 : (isSpacious ? 48.0 : 46.0);
+        final applyFontSize = isCompact ? 13.5 : (isSpacious ? 15.0 : 14.0);
+
+        return Column(
+          children: [
             Expanded(
               child: ListenableBuilder(
                 listenable: modelStore,
@@ -1322,12 +1547,12 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                   if (availableModels.isEmpty) {
                     return Center(
                       child: Padding(
-                        padding: const EdgeInsets.all(24.0),
+                        padding: EdgeInsets.all(horizontalPadding),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             if (modelStore.isLoading)
-                              const CircularProgressIndicator(color: AppColors.purple)
+                              const CircularProgressIndicator(color: Color(0xFFEF4444))
                             else ...[
                               Icon(Icons.widgets_outlined, color: context.textSecondary, size: 36),
                               const SizedBox(height: 12),
@@ -1343,66 +1568,83 @@ class ComparisonScreenState extends State<ComparisonScreen> {
                       ),
                     );
                   }
-                  return ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: availableModels.length,
-                    itemBuilder: (context, i) {
-                      final m = availableModels[i];
-                      final selected = _selected.contains(m.id);
-                      final providerEnum = LlmProvider.fromString(m.provider);
-                      return CheckboxListTile(
-                        value: selected,
-                        activeColor: AppColors.purple,
-                        controlAffinity: ListTileControlAffinity.trailing,
-                        onChanged: (v) {
-                          setState(() {
-                            if (v == true) {
-                              _selected.add(m.id);
-                            } else {
-                              _selected.remove(m.id);
-                            }
-                          });
-                          _persistModelSelection();
+
+                  return AnimatedBuilder(
+                    animation: _beamController,
+                    builder: (context, _) {
+                      return ListView.separated(
+                        padding: EdgeInsets.fromLTRB(horizontalPadding, topPadding, horizontalPadding, 12),
+                        itemCount: availableModels.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, i) {
+                          final m = availableModels[i];
+                          final isSelected = _draftSelected.contains(m.id);
+                          final isApplied = widget.appliedIds.contains(m.id);
+                          return _buildModelTile(
+                            context,
+                            m,
+                            isSelected,
+                            isApplied,
+                            isDark,
+                            minHeight: tileMinHeight,
+                            nameFontSize: nameFontSize,
+                            providerFontSize: providerFontSize,
+                            dotFontSize: dotFontSize,
+                            isCompact: isCompact,
+                          );
                         },
-                        secondary: CircleAvatar(
-                          radius: 15,
-                          backgroundColor: m.color,
-                          child: Text(m.badgeLetter, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        ),
-                        title: Text(m.name,
-                            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 13.5)),
-                        subtitle: Text(m.active ? '${providerEnum.displayName} • Active' : '${providerEnum.displayName} • Inactive',
-                            style: TextStyle(
-                                color: m.active ? context.textSecondary : Colors.redAccent.withValues(alpha: 0.8),
-                                fontSize: 11.5)),
                       );
                     },
                   );
                 },
               ),
             ),
+
+            // Apply Button with animated red laser line and responsive sizing
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(horizontalPadding, 8, horizontalPadding, bottomPadding),
               child: SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    _persistModelSelection();
-                    Navigator.of(context).pop();
+                child: AnimatedBuilder(
+                  animation: _beamController,
+                  builder: (context, _) {
+                    return InkWell(
+                      onTap: () {
+                        widget.onApply(_draftSelected);
+                        Navigator.of(context).pop();
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      child: CustomPaint(
+                        painter: MovingRedBorderPainter(
+                          progress: _beamController.value,
+                          borderRadius: 10,
+                          isDark: isDark,
+                        ),
+                        child: Container(
+                          height: applyButtonHeight,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            'Apply',
+                            style: TextStyle(
+                              color: context.textPrimary,
+                              fontSize: applyFontSize,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.purple,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text('Apply Selection (${_selectedModels.length})'),
                 ),
               ),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
