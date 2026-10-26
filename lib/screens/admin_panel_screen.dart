@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models.dart';
-import '../widgets/screen_header.dart';
+import '../widgets/moving_red_border_painter.dart';
 
-/// Admin panel for managing LLM model integrations.
+/// Admin panel for managing LLM models with a modern, responsive layout,
+/// animated laser borders for active models, and clean animated-line inputs.
 class AdminPanelScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
   const AdminPanelScreen({super.key, this.onMenuTap});
@@ -44,6 +46,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         );
       },
     );
+  }
+
+  Future<void> _toggleModel(LlmModel model) async {
+    final success = await modelStore.toggleActiveViaApi(model.id);
+    if (mounted && !success) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Failed to toggle model status'),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ));
+    }
   }
 
   void _confirmDelete(LlmModel model) {
@@ -145,133 +159,621 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         final active = models.where((m) => m.active).length;
         final providers = models.map((m) => m.provider).toSet().length;
 
-        return Column(
+        return Scaffold(
+          backgroundColor: context.bg,
+          body: Column(
+            children: [
+              // ── Modern Responsive Top Bar (Matching Smart Routing & Offline) ──
+              _buildTopBar(context, active, models.length),
+
+              // ── Main Dashboard Body ──
+              Expanded(
+                child: modelStore.isLoading
+                    ? const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: Color(0xFFEF4444)),
+                            SizedBox(height: 16),
+                            Text(
+                              'Loading models...',
+                              style: TextStyle(color: Color(0xFFEF4444), fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      )
+                    : modelStore.errorMessage != null
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.cloud_off_rounded, color: context.textSecondary, size: 48),
+                                const SizedBox(height: 12),
+                                Text(
+                                  modelStore.errorMessage!,
+                                  style: TextStyle(color: context.textSecondary, fontSize: 13),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  onPressed: () => modelStore.loadFromApi(),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFEF4444),
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                                  label: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // ── Responsive Quantity / Metric Cards ──
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final width = constraints.maxWidth;
+                                    final statCards = [
+                                      _StatCard(
+                                        value: '${models.length}',
+                                        label: 'Total Models',
+                                        icon: Icons.layers_outlined,
+                                        accentColor: context.textPrimary,
+                                      ),
+                                      _StatCard(
+                                        value: '$active',
+                                        label: 'Active Models',
+                                        icon: Icons.bolt_rounded,
+                                        accentColor: const Color(0xFF10A37F),
+                                        isPulsing: true,
+                                      ),
+                                      _StatCard(
+                                        value: '$providers',
+                                        label: 'Providers',
+                                        icon: Icons.hub_outlined,
+                                        accentColor: const Color(0xFFEF4444),
+                                      ),
+                                    ];
+
+                                    if (width < 550) {
+                                      // Mobile layout
+                                      return Row(
+                                        children: statCards
+                                            .map((s) => Expanded(
+                                                  child: Padding(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                                    child: s,
+                                                  ),
+                                                ))
+                                            .toList(),
+                                      );
+                                    }
+
+                                    return Row(
+                                      children: statCards
+                                          .map((s) => Expanded(
+                                                child: Padding(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                                  child: s,
+                                                ),
+                                              ))
+                                          .toList(),
+                                    );
+                                  },
+                                ),
+
+                                const SizedBox(height: 24),
+
+                                // ── Section Header ──
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'CONFIGURED MODELS',
+                                      style: TextStyle(
+                                        color: context.textSecondary,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${models.length} Total',
+                                      style: TextStyle(
+                                        color: context.textSecondary,
+                                        fontSize: 11.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+
+                                // ── Empty State or Equal-Sized Model Cards ──
+                                if (models.isEmpty)
+                                  _EmptyState(onAdd: () => _openModelPanel())
+                                else
+                                  Column(
+                                    children: models.map((m) {
+                                      return _ModelCard(
+                                        model: m,
+                                        onToggle: () => _toggleModel(m),
+                                        onDelete: () => _confirmDelete(m),
+                                        onEdit: () => _openModelPanel(existingModel: m),
+                                      );
+                                    }).toList(),
+                                  ),
+                              ],
+                            ),
+                          ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Appbar matching Smart Routing & Offline screens:
+  /// - Removed + sign
+  /// - Removed green container
+  /// - Clean animated line / border interactive Add Model button
+  Widget _buildTopBar(BuildContext context, int active, int total) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.bg,
+        border: Border(bottom: BorderSide(color: context.borderColor, width: 0.5)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
           children: [
-            ScreenHeader(
-              icon: Icons.settings_outlined,
-              title: 'Admin Panel',
-              subtitle: 'Manage LLM integrations',
-              onMenuTap: widget.onMenuTap,
-              trailing: SizedBox(
-                height: 34,
-                child: ElevatedButton.icon(
-                  onPressed: () => _openModelPanel(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.purple,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            if (widget.onMenuTap != null)
+              IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                onPressed: widget.onMenuTap,
+                color: context.textPrimary,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.tune_rounded, color: Color(0xFFEF4444), size: 20),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Admin Panel',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                   ),
-                  icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text(
-                    'Add Model',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(0xFF10A37F),
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '$active Models Active · $total Total',
+                      style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const Spacer(),
+
+            // Add Model button in Appbar (No '+' icon, No green container)
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _openModelPanel(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  'Add Model',
+                  style: TextStyle(
+                    color: context.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
             ),
-            Expanded(
-              child: modelStore.isLoading
-                  ? const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(color: AppColors.purple),
-                          SizedBox(height: 16),
-                          Text(
-                            'Loading models...',
-                            style: TextStyle(color: AppColors.purple, fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    )
-                  : modelStore.errorMessage != null
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.cloud_off_rounded, color: context.textSecondary, size: 48),
-                              const SizedBox(height: 12),
-                              Text(
-                                modelStore.errorMessage!,
-                                style: TextStyle(color: context.textSecondary, fontSize: 13),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 16),
-                              ElevatedButton.icon(
-                                onPressed: () => modelStore.loadFromApi(),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.purple,
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                                icon: const Icon(Icons.refresh_rounded, size: 16),
-                                label: const Text('Retry'),
-                              ),
-                            ],
-                          ),
-                        )
-                      : SingleChildScrollView(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              LayoutBuilder(builder: (context, constraints) {
-                                final wide = constraints.maxWidth > 600;
-                                final stats = [
-                                  _StatCard(value: '${models.length}', label: 'Total Models'),
-                                  _StatCard(value: '$active', label: 'Active'),
-                                  _StatCard(value: '$providers', label: 'Providers'),
-                                ];
-                                if (wide) {
-                                  return Row(
-                                    children: stats
-                                        .map((s) => Expanded(
-                                              child: Padding(
-                                                padding: const EdgeInsets.only(right: 10),
-                                                child: s,
-                                              ),
-                                            ))
-                                        .toList(),
-                                  );
-                                }
-                                return Column(
-                                  children: stats
-                                      .map((s) => Padding(
-                                            padding: const EdgeInsets.only(bottom: 10),
-                                            child: s,
-                                          ))
-                                      .toList(),
-                                );
-                              }),
-                              const SizedBox(height: 16),
-                              if (models.isEmpty)
-                                _EmptyState(onAdd: () => _openModelPanel()),
-                              ...models.map((m) => _ModelRow(
-                                    model: m,
-                                    onToggle: () async {
-                                      final success = await modelStore.toggleActiveViaApi(m.id);
-                                      if (mounted && !success) {
-                                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                          content: const Text('Failed to toggle model status'),
-                                          backgroundColor: Colors.redAccent,
-                                          behavior: SnackBarBehavior.floating,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                        ));
-                                      }
-                                    },
-                                    onDelete: () => _confirmDelete(m),
-                                    onEdit: () => _openModelPanel(existingModel: m),
-                                  )),
-                            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Responsive Modern Stat Card
+// ─────────────────────────────────────────────────────────────
+
+class _StatCard extends StatelessWidget {
+  final String value;
+  final String label;
+  final IconData icon;
+  final Color accentColor;
+  final bool isPulsing;
+
+  const _StatCard({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.accentColor,
+    this.isPulsing = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: context.surface2,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: context.textSecondary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(icon, color: accentColor, size: 13),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              if (isPulsing) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFF10A37F),
+                  ),
+                ),
+              ],
+              Text(
+                value,
+                style: TextStyle(
+                  color: context.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Equal-Sized Model Card with Animated Laser Line on Active
+// ─────────────────────────────────────────────────────────────
+
+class _ModelCard extends StatefulWidget {
+  final LlmModel model;
+  final VoidCallback onToggle;
+  final VoidCallback onDelete;
+  final VoidCallback onEdit;
+
+  const _ModelCard({
+    required this.model,
+    required this.onToggle,
+    required this.onDelete,
+    required this.onEdit,
+  });
+
+  @override
+  State<_ModelCard> createState() => _ModelCardState();
+}
+
+class _ModelCardState extends State<_ModelCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _laserCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _laserCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    );
+    if (widget.model.active) {
+      _laserCtrl.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ModelCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.model.active != oldWidget.model.active) {
+      if (widget.model.active) {
+        _laserCtrl.repeat();
+      } else {
+        _laserCtrl.stop();
+        _laserCtrl.reset();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _laserCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final model = widget.model;
+    final isDark = context.isDark;
+    final providerDisplay = LlmProvider.fromString(model.provider).displayName;
+
+    return Container(
+      // STRICT UNIFORM EQUAL HEIGHT AND WIDTH FOR ALL MODEL CARDS
+      height: 118,
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: AnimatedBuilder(
+        animation: _laserCtrl,
+        builder: (context, child) {
+          return CustomPaint(
+            painter: model.active
+                ? MovingRedBorderPainter(
+                    progress: _laserCtrl.value,
+                    borderRadius: 12,
+                    isDark: isDark,
+                  )
+                : null,
+            child: Container(
+              decoration: BoxDecoration(
+                color: context.surface2,
+                borderRadius: BorderRadius.circular(12),
+                border: model.active
+                    ? null
+                    : Border.all(color: context.borderColor),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: child,
+            ),
+          );
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Top Row: Avatar + Name + Status + Router + Action buttons
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 14,
+                  backgroundColor: model.color,
+                  child: Text(
+                    model.badgeLetter,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          model.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
                           ),
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Active/Inactive badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: (model.active
+                                  ? const Color(0xFF10A37F)
+                                  : context.textSecondary)
+                              .withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: model.active
+                                    ? const Color(0xFF10A37F)
+                                    : context.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              model.active ? 'Active' : 'Inactive',
+                              style: TextStyle(
+                                color: model.active
+                                    ? const Color(0xFF10A37F)
+                                    : context.textSecondary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (model.isRouter) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'Router',
+                            style: TextStyle(
+                              color: Color(0xFFEF4444),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Actions
+                Transform.scale(
+                  scale: 0.75,
+                  child: Switch(
+                    value: model.active,
+                    onChanged: (_) => widget.onToggle(),
+                    activeThumbColor: const Color(0xFFEF4444),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+                IconButton(
+                  onPressed: widget.onEdit,
+                  iconSize: 16,
+                  padding: const EdgeInsets.all(4),
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  icon: Icon(Icons.edit_outlined, color: context.textSecondary),
+                  tooltip: 'Edit',
+                ),
+                IconButton(
+                  onPressed: widget.onDelete,
+                  iconSize: 16,
+                  padding: const EdgeInsets.all(4),
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                  tooltip: 'Delete',
+                ),
+              ],
+            ),
+
+            // Middle Row: Provider · Model code
+            Padding(
+              padding: const EdgeInsets.only(left: 38),
+              child: Text(
+                '$providerDisplay · ${model.modelCode}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: context.textSecondary,
+                  fontSize: 11.5,
+                ),
+              ),
+            ),
+
+            // Bottom Row: Tags (Horizontal list with fixed height so height never varies)
+            SizedBox(
+              height: 22,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 38),
+                child: model.tags.isEmpty
+                    ? Text(
+                        'No routing tags',
+                        style: TextStyle(
+                          color: context.textSecondary.withValues(alpha: 0.5),
+                          fontSize: 10.5,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      )
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: model.tags.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 6),
+                        itemBuilder: (context, i) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                                width: 0.8,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              model.tags[i],
+                              style: const TextStyle(
+                                color: Color(0xFFEF4444),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -304,22 +806,15 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Add your first LLM integration to get started',
+            'Add your first LLM to get started',
             style: TextStyle(color: context.textSecondary, fontSize: 12.5),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           SizedBox(
-            height: 36,
-            child: ElevatedButton.icon(
+            width: 180,
+            child: _AnimatedLineButton(
+              text: 'Add Model',
               onPressed: onAdd,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.purple,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              icon: const Icon(Icons.add_rounded, size: 16),
-              label: const Text('Add Model', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
             ),
           ),
         ],
@@ -329,7 +824,7 @@ class _EmptyState extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Add / Edit LLM Integration — Right Slide-In Panel
+// Add / Edit LLM Slide-In Panel
 // ─────────────────────────────────────────────────────────────
 
 class _ProviderOption {
@@ -342,18 +837,19 @@ class _ProviderOption {
   const _ProviderOption({
     required this.name,
     required this.backendKey,
-    required this.subtitle,
+    this.subtitle = '',
     required this.letter,
     required this.color,
   });
 }
 
+// Clean providers list without the subtitle model names on top
 const _providers = <_ProviderOption>[
-  _ProviderOption(name: 'OpenAI', backendKey: 'openai', subtitle: 'GPT-4, GPT-3.5-turbo', letter: 'O', color: AppColors.openaiGreen),
-  _ProviderOption(name: 'Google Gemini', backendKey: 'gemini', subtitle: 'Gemini Pro, Gemini Ultra', letter: 'G', color: AppColors.geminiBlue),
-  _ProviderOption(name: 'Anthropic Claude', backendKey: 'anthropic', subtitle: 'Claude 3, Claude 2', letter: 'A', color: AppColors.anthropicOrange),
-  _ProviderOption(name: 'Ollama (Local)', backendKey: 'ollama', subtitle: 'Llama, Mistral, etc.', letter: 'O', color: AppColors.deepseekGray),
-  _ProviderOption(name: 'Custom API', backendKey: 'custom', subtitle: 'Any OpenAI-compatible API', letter: 'C', color: AppColors.purple),
+  _ProviderOption(name: 'OpenAI', backendKey: 'openai', subtitle: '', letter: 'O', color: AppColors.openaiGreen),
+  _ProviderOption(name: 'Google Gemini', backendKey: 'gemini', subtitle: '', letter: 'G', color: AppColors.geminiBlue),
+  _ProviderOption(name: 'Anthropic Claude', backendKey: 'anthropic', subtitle: '', letter: 'A', color: AppColors.anthropicOrange),
+  _ProviderOption(name: 'Ollama (Local)', backendKey: 'ollama', subtitle: '', letter: 'O', color: AppColors.deepseekGray),
+  _ProviderOption(name: 'Custom API', backendKey: 'custom', subtitle: '', letter: 'C', color: AppColors.purple),
 ];
 
 const _allRoutingTags = ['coding', 'reasoning', 'creative', 'general', 'math', 'science'];
@@ -423,7 +919,6 @@ class _AddModelPanelState extends State<_AddModelPanel> {
       _selectedTags
         ..clear()
         ..addAll(m.tags);
-      // Match provider by backend key
       final idx = _providers.indexWhere((p) => p.backendKey == m.provider);
       if (idx >= 0) _selectedProvider = idx;
     }
@@ -452,7 +947,6 @@ class _AddModelPanelState extends State<_AddModelPanel> {
     String? tempErr;
     String? maxTokensErr;
 
-    // Field validations
     if (name.isEmpty) {
       nameErr = 'Display name is required';
     }
@@ -510,7 +1004,6 @@ class _AddModelPanelState extends State<_AddModelPanel> {
       }
     }
 
-    // Only send api_key if user entered something
     final apiKey = _apiKeyCtrl.text.trim();
     if (apiKey.isNotEmpty) data['api_key'] = apiKey;
 
@@ -557,8 +1050,8 @@ class _AddModelPanelState extends State<_AddModelPanel> {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    // Responsive: full width on small screens, 400px on larger
-    final panelWidth = screenWidth < 500 ? screenWidth : 400.0;
+    // Completely responsive panel: full width on mobile (<500px), 420px on desktop
+    final panelWidth = screenWidth < 500 ? screenWidth : math.min(440.0, screenWidth * 0.9);
 
     return Material(
       color: Colors.transparent,
@@ -572,15 +1065,15 @@ class _AddModelPanelState extends State<_AddModelPanel> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 24,
-              offset: const Offset(-4, 0),
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 28,
+              offset: const Offset(-6, 0),
             ),
           ],
         ),
         child: Column(
           children: [
-            // ── Header ──
+            // ── Header (Title changed from "Add LLM Integration" to "Add LLM") ──
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
               decoration: BoxDecoration(
@@ -592,7 +1085,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.isEditMode ? 'Edit LLM Integration' : 'Add LLM Integration',
+                      widget.isEditMode ? 'Edit LLM' : 'Add LLM',
                       style: TextStyle(
                         color: context.textPrimary,
                         fontSize: 17,
@@ -609,107 +1102,95 @@ class _AddModelPanelState extends State<_AddModelPanel> {
               ),
             ),
 
-            // ── Scrollable body ──
+            // ── Scrollable Form Body ──
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Provider Selection ──
+                    // ── Provider Selector (Clean dropdown without the top model list) ──
                     _sectionLabel('PROVIDER'),
-                    const SizedBox(height: 10),
-                    ...List.generate(_providers.length, (i) {
-                      final p = _providers[i];
-                      final selected = _selectedProvider == i;
-                      return GestureDetector(
-                        onTap: () => setState(() => _selectedProvider = i),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.purple.withValues(alpha: 0.08)
-                                : context.surface2,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: selected ? AppColors.purple : context.borderColor,
-                              width: selected ? 1.5 : 1,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 16,
-                                backgroundColor: p.color,
-                                child: Text(
-                                  p.letter,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: context.surface2,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: context.borderColor),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _selectedProvider,
+                          isExpanded: true,
+                          dropdownColor: context.surface,
+                          icon: Icon(Icons.keyboard_arrow_down_rounded, color: context.textSecondary),
+                          items: List.generate(_providers.length, (i) {
+                            final p = _providers[i];
+                            return DropdownMenuItem<int>(
+                              value: i,
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 11,
+                                    backgroundColor: p.color,
+                                    child: Text(
+                                      p.letter,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      p.name,
-                                      style: TextStyle(
-                                        color: context.textPrimary,
-                                        fontSize: 13.5,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    p.name,
+                                    style: TextStyle(
+                                      color: context.textPrimary,
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                    const SizedBox(height: 1),
-                                    Text(
-                                      p.subtitle,
-                                      style: TextStyle(
-                                        color: context.textSecondary,
-                                        fontSize: 11.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            );
+                          }),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _selectedProvider = val);
+                          },
                         ),
-                      );
-                    }),
+                      ),
+                    ),
 
                     const SizedBox(height: 20),
 
-                    // ── Display Name ──
+                    // ── Display Name with Animated Line ──
                     _sectionLabel('DISPLAY NAME *'),
-                    const SizedBox(height: 8),
-                    _buildTextField(
+                    const SizedBox(height: 4),
+                    _AnimatedLineTextField(
                       controller: _displayNameCtrl,
                       hint: 'e.g. GPT-4 Turbo, Claude 3',
                       errorText: _displayNameError,
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // ── Model ID ──
+                    // ── Model ID with Animated Line ──
                     _sectionLabel('MODEL ID *'),
-                    const SizedBox(height: 8),
-                    _buildTextField(
+                    const SizedBox(height: 4),
+                    _AnimatedLineTextField(
                       controller: _modelIdCtrl,
                       hint: 'e.g. gpt-4o, gemini-1.5-pro',
                       errorText: _modelIdError,
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // ── API Key ──
+                    // ── API Key with Animated Line ──
                     _sectionLabel('API KEY'),
-                    const SizedBox(height: 8),
-                    _buildTextField(
+                    const SizedBox(height: 4),
+                    _AnimatedLineTextField(
                       controller: _apiKeyCtrl,
                       hint: widget.isEditMode ? '••••••••  (leave empty to keep current)' : 'sk-...',
                       obscure: _obscureKey,
@@ -724,52 +1205,52 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                       ),
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // ── Endpoint URL ──
+                    // ── Endpoint URL with Animated Line ──
                     _sectionLabel('ENDPOINT URL'),
-                    const SizedBox(height: 8),
-                    _buildTextField(
+                    const SizedBox(height: 4),
+                    _AnimatedLineTextField(
                       controller: _endpointCtrl,
                       hint: 'https://api.example.com/v1/...',
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // ── Description ──
+                    // ── Description with Animated Line ──
                     _sectionLabel('DESCRIPTION (optional)'),
-                    const SizedBox(height: 8),
-                    _buildTextField(
+                    const SizedBox(height: 4),
+                    _AnimatedLineTextField(
                       controller: _descriptionCtrl,
                       hint: 'Brief description of this model\'s strengths',
                       maxLines: 2,
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // ── Temperature ──
+                    // ── Temperature with Animated Line ──
                     _sectionLabel('TEMPERATURE'),
-                    const SizedBox(height: 8),
-                    _buildTextField(
+                    const SizedBox(height: 4),
+                    _AnimatedLineTextField(
                       controller: _temperatureCtrl,
                       hint: 'e.g. 0.7',
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       errorText: _temperatureError,
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // ── Max Tokens ──
+                    // ── Max Tokens with Animated Line ──
                     _sectionLabel('MAX TOKENS'),
-                    const SizedBox(height: 8),
-                    _buildTextField(
+                    const SizedBox(height: 4),
+                    _AnimatedLineTextField(
                       controller: _maxTokensCtrl,
                       hint: 'e.g. 2048',
                       keyboardType: TextInputType.number,
                       errorText: _maxTokensError,
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
                     // ── Routing Checkbox ──
                     Container(
@@ -787,7 +1268,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'is this for Routing purpose?',
+                                  'Is this for Routing purpose?',
                                   style: TextStyle(
                                     color: context.textPrimary,
                                     fontSize: 13.5,
@@ -811,7 +1292,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                               _isRouter = v ?? false;
                               if (_isRouter) _routingTagsError = null;
                             }),
-                            activeColor: AppColors.purple,
+                            activeColor: const Color(0xFFEF4444),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                           ),
                         ],
@@ -847,17 +1328,17 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                               decoration: BoxDecoration(
                                 color: selected
-                                    ? AppColors.purple.withValues(alpha: 0.15)
+                                    ? const Color(0xFFEF4444).withValues(alpha: 0.15)
                                     : context.surface2,
                                 borderRadius: BorderRadius.circular(20),
                                 border: Border.all(
-                                  color: selected ? AppColors.purple : context.borderColor,
+                                  color: selected ? const Color(0xFFEF4444) : context.borderColor,
                                 ),
                               ),
                               child: Text(
                                 tag,
                                 style: TextStyle(
-                                  color: selected ? AppColors.purple : context.textSecondary,
+                                  color: selected ? const Color(0xFFEF4444) : context.textSecondary,
                                   fontSize: 12.5,
                                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                                 ),
@@ -890,7 +1371,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                       ],
                     ],
 
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
 
                     // ── Active Toggle ──
                     Container(
@@ -929,7 +1410,7 @@ class _AddModelPanelState extends State<_AddModelPanel> {
                             child: Switch(
                               value: _isActive,
                               onChanged: (v) => setState(() => _isActive = v),
-                              activeThumbColor: AppColors.purple,
+                              activeThumbColor: const Color(0xFFEF4444),
                             ),
                           ),
                         ],
@@ -942,45 +1423,20 @@ class _AddModelPanelState extends State<_AddModelPanel> {
               ),
             ),
 
-            // ── Bottom Submit Button ──
+            // ── Bottom Action Button ──
+            // User: "add model hai usmai bhi icons ko remove kro just add model ho and container bhi remove kro green just animated line mai add model write ho"
             Container(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
               decoration: BoxDecoration(
                 color: context.surface,
                 border: Border(
                   top: BorderSide(color: context.borderColor),
                 ),
               ),
-              child: SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: ElevatedButton.icon(
-                  onPressed: _isSubmitting ? null : _submitModel,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.purple,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: AppColors.purple.withValues(alpha: 0.5),
-                    disabledForegroundColor: Colors.white70,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  icon: _isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white70,
-                          ),
-                        )
-                      : Icon(widget.isEditMode ? Icons.check_rounded : Icons.save_outlined, size: 18),
-                  label: Text(
-                    _isSubmitting
-                        ? (widget.isEditMode ? 'Saving...' : 'Adding...')
-                        : (widget.isEditMode ? 'Save Changes' : 'Add Model'),
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                  ),
-                ),
+              child: _AnimatedLineButton(
+                text: widget.isEditMode ? 'Save Changes' : 'Add Model',
+                isLoading: _isSubmitting,
+                onPressed: _submitModel,
               ),
             ),
           ],
@@ -995,66 +1451,130 @@ class _AddModelPanelState extends State<_AddModelPanel> {
       style: TextStyle(
         color: context.textSecondary,
         fontSize: 11,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w700,
         letterSpacing: 0.5,
       ),
     );
   }
+}
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hint,
-    bool obscure = false,
-    Widget? suffixIcon,
-    int maxLines = 1,
-    TextInputType? keyboardType,
-    String? errorText,
-  }) {
-    final hasError = errorText != null && errorText.isNotEmpty;
+// ─────────────────────────────────────────────────────────────
+// Animated Line Text Field (Only animates on focus/click)
+// ─────────────────────────────────────────────────────────────
+
+class _AnimatedLineTextField extends StatefulWidget {
+  final TextEditingController controller;
+  final String hint;
+  final bool obscure;
+  final Widget? suffixIcon;
+  final int maxLines;
+  final TextInputType? keyboardType;
+  final String? errorText;
+
+  const _AnimatedLineTextField({
+    required this.controller,
+    required this.hint,
+    this.obscure = false,
+    this.suffixIcon,
+    this.maxLines = 1,
+    this.keyboardType,
+    this.errorText,
+  });
+
+  @override
+  State<_AnimatedLineTextField> createState() => _AnimatedLineTextFieldState();
+}
+
+class _AnimatedLineTextFieldState extends State<_AnimatedLineTextField>
+    with SingleTickerProviderStateMixin {
+  late final FocusNode _focusNode;
+  late final AnimationController _animCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+
+    _focusNode.addListener(() {
+      if (_focusNode.hasFocus) {
+        _animCtrl.repeat();
+      } else {
+        _animCtrl.stop();
+        _animCtrl.reset();
+      }
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasError = widget.errorText != null && widget.errorText!.isNotEmpty;
+    final isFocused = _focusNode.hasFocus;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        TextField(
-          controller: controller,
-          obscureText: obscure,
-          maxLines: maxLines,
-          keyboardType: keyboardType,
-          style: TextStyle(color: context.textPrimary, fontSize: 13.5),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: context.textSecondary.withValues(alpha: 0.6), fontSize: 13),
-            filled: true,
-            fillColor: context.surface2,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            suffixIcon: suffixIcon,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: hasError ? Colors.redAccent : context.borderColor,
-                width: hasError ? 1.5 : 1.0,
+        AnimatedBuilder(
+          animation: _animCtrl,
+          builder: (context, child) {
+            return CustomPaint(
+              painter: _UnderlineBeamPainter(
+                progress: _animCtrl.value,
+                isFocused: isFocused,
+                hasError: hasError,
+                baseColor: context.borderColor,
+                beamColor: const Color(0xFFEF4444),
               ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: hasError ? Colors.redAccent : AppColors.purple,
-                width: 1.5,
+              child: child,
+            );
+          },
+          child: TextField(
+            focusNode: _focusNode,
+            controller: widget.controller,
+            obscureText: widget.obscure,
+            maxLines: widget.maxLines,
+            keyboardType: widget.keyboardType,
+            style: TextStyle(color: context.textPrimary, fontSize: 13.5),
+            decoration: InputDecoration(
+              hintText: widget.hint,
+              hintStyle: TextStyle(
+                color: context.textSecondary.withValues(alpha: 0.5),
+                fontSize: 13,
               ),
+              filled: false,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+              suffixIcon: widget.suffixIcon,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
             ),
           ),
         ),
         if (hasError) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
           Padding(
-            padding: const EdgeInsets.only(left: 4),
+            padding: const EdgeInsets.only(left: 2),
             child: Row(
               children: [
                 const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 13),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    errorText,
+                    widget.errorText!,
                     style: const TextStyle(
                       color: Colors.redAccent,
                       fontSize: 11.5,
@@ -1071,194 +1591,166 @@ class _AddModelPanelState extends State<_AddModelPanel> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Stat Card
-// ─────────────────────────────────────────────────────────────
+/// Custom painter for the animated underline laser beam on text field focus
+class _UnderlineBeamPainter extends CustomPainter {
+  final double progress;
+  final bool isFocused;
+  final bool hasError;
+  final Color baseColor;
+  final Color beamColor;
 
-class _StatCard extends StatelessWidget {
-  final String value;
-  final String label;
-  const _StatCard({required this.value, required this.label});
+  const _UnderlineBeamPainter({
+    required this.progress,
+    required this.isFocused,
+    required this.hasError,
+    required this.baseColor,
+    required this.beamColor,
+  });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: BoxDecoration(
-        color: context.surface2,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.borderColor),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: const TextStyle(
-              color: AppColors.purple,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(color: context.textSecondary, fontSize: 12),
-          ),
-        ],
-      ),
-    );
+  void paint(Canvas canvas, Size size) {
+    final y = size.height;
+
+    // 1. Static base track
+    final trackPaint = Paint()
+      ..color = hasError ? Colors.redAccent.withValues(alpha: 0.6) : baseColor
+      ..strokeWidth = hasError ? 1.5 : 1.0;
+    canvas.drawLine(Offset(0, y), Offset(size.width, y), trackPaint);
+
+    if (hasError) return;
+
+    // 2. Animated glowing laser beam only when field has focus
+    if (isFocused && size.width > 0) {
+      final beamLength = size.width * 0.45;
+      final startX = (size.width + beamLength) * progress - beamLength;
+      final endX = (startX + beamLength).clamp(0.0, size.width);
+      final clampedStartX = startX.clamp(0.0, size.width);
+
+      if (endX > clampedStartX) {
+        final shader = LinearGradient(
+          colors: [
+            Colors.transparent,
+            beamColor.withValues(alpha: 0.3),
+            beamColor,
+            const Color(0xFFFF8888),
+            beamColor,
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.2, 0.5, 0.65, 0.85, 1.0],
+        ).createShader(Rect.fromLTWH(clampedStartX, y - 2, endX - clampedStartX, 4));
+
+        // Glow halo
+        final glowPaint = Paint()
+          ..shader = shader
+          ..strokeWidth = 3.6
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+        canvas.drawLine(Offset(clampedStartX, y), Offset(endX, y), glowPaint);
+
+        // Sharp beam line
+        final beamPaint = Paint()
+          ..shader = shader
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(Offset(clampedStartX, y), Offset(endX, y), beamPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_UnderlineBeamPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.isFocused != isFocused ||
+        oldDelegate.hasError != hasError ||
+        oldDelegate.baseColor != baseColor ||
+        oldDelegate.beamColor != beamColor;
   }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Model Row
+// Animated Line Button (No icons, no solid green container,
+// just animated line and bold text)
 // ─────────────────────────────────────────────────────────────
 
-class _ModelRow extends StatelessWidget {
-  final LlmModel model;
-  final VoidCallback onToggle;
-  final VoidCallback onDelete;
-  final VoidCallback onEdit;
+class _AnimatedLineButton extends StatefulWidget {
+  final String text;
+  final bool isLoading;
+  final VoidCallback? onPressed;
 
-  const _ModelRow({
-    required this.model,
-    required this.onToggle,
-    required this.onDelete,
-    required this.onEdit,
+  const _AnimatedLineButton({
+    required this.text,
+    this.isLoading = false,
+    this.onPressed,
   });
 
   @override
-  Widget build(BuildContext context) {
-    // Resolve display name from provider backend key
-    final providerDisplay = LlmProvider.fromString(model.provider).displayName;
+  State<_AnimatedLineButton> createState() => _AnimatedLineButtonState();
+}
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: context.surface2,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.borderColor),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: model.color,
-            child: Text(
-              model.badgeLetter,
-              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+class _AnimatedLineButtonState extends State<_AnimatedLineButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+
+    return SizedBox(
+      height: 46,
+      width: double.infinity,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (context, child) {
+          return CustomPaint(
+            painter: MovingRedBorderPainter(
+              progress: _ctrl.value,
+              borderRadius: 10,
+              isDark: isDark,
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        model.name,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: context.textPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13.5,
-                        ),
+            child: child,
+          );
+        },
+        child: Material(
+          color: Colors.transparent, // Removed green container / solid fill
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: widget.isLoading ? null : widget.onPressed,
+            child: Center(
+              child: widget.isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFFEF4444),
+                      ),
+                    )
+                  : Text(
+                      widget.text, // Just "Add Model" / text, no icon!
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: (model.active ? AppColors.success : context.textSecondary)
-                            .withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        model.active ? 'Active' : 'Inactive',
-                        style: TextStyle(
-                          color: model.active ? AppColors.success : context.textSecondary,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (model.isRouter) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.purple.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'Router',
-                          style: TextStyle(
-                            color: AppColors.purple,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '$providerDisplay · ${model.modelCode}',
-                  style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                ),
-                if (model.tags.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 5,
-                    runSpacing: 4,
-                    children: model.tags
-                        .map(
-                          (t) => Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.purple.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              t,
-                              style: const TextStyle(color: AppColors.purple, fontSize: 10),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ],
             ),
           ),
-          Transform.scale(
-            scale: 0.8,
-            child: Switch(
-              value: model.active,
-              onChanged: (_) => onToggle(),
-              activeThumbColor: AppColors.purple,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-          IconButton(
-            onPressed: onEdit,
-            iconSize: 17,
-            padding: const EdgeInsets.all(6),
-            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-            icon: Icon(Icons.edit_outlined, color: context.textSecondary),
-          ),
-          IconButton(
-            onPressed: onDelete,
-            iconSize: 17,
-            padding: const EdgeInsets.all(6),
-            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-            icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-          ),
-        ],
+        ),
       ),
     );
   }
