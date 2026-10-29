@@ -82,14 +82,29 @@ class _OrbitAppState extends State<OrbitApp> {
       ),
       GoRoute(
         path: '/home',
-        builder: (BuildContext context, GoRouterState state) {
-          return HomeShell(isDarkMode: themeController.isDark, onToggleTheme: themeController.toggle);
+        pageBuilder: (BuildContext context, GoRouterState state) {
+          final tabParam = state.uri.queryParameters['tab'];
+          final initialTab = int.tryParse(tabParam ?? '') ??
+              (state.extra is int ? state.extra as int : 0);
+          return NoTransitionPage(
+            child: HomeShell(
+              isDarkMode: themeController.isDark,
+              onToggleTheme: themeController.toggle,
+              initialIndex: initialTab,
+            ),
+          );
         },
       ),
       GoRoute(
         path: '/admin-panel',
-        builder: (BuildContext context, GoRouterState state) {
-          return HomeShell(isDarkMode: themeController.isDark, onToggleTheme: themeController.toggle, startWithAdmin: true);
+        pageBuilder: (BuildContext context, GoRouterState state) {
+          return NoTransitionPage(
+            child: HomeShell(
+              isDarkMode: themeController.isDark,
+              onToggleTheme: themeController.toggle,
+              startWithAdmin: true,
+            ),
+          );
         },
       ),
     ],

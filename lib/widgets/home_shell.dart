@@ -10,17 +10,20 @@ import '../screens/offline_mode_screen.dart';
 import '../screens/smart_routing_screen.dart';
 import 'sidebar.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Root shell with responsive sidebar and mode navigation.
 class HomeShell extends StatefulWidget {
   final bool isDarkMode;
   final VoidCallback onToggleTheme;
   final bool startWithAdmin;
+  final int initialIndex;
   const HomeShell({
     super.key, 
     required this.isDarkMode, 
     required this.onToggleTheme,
     this.startWithAdmin = false,
+    this.initialIndex = 0,
   });
 
   @override
@@ -28,7 +31,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _index = 0;
+  late int _index = widget.initialIndex;
   late bool _adminSelected = widget.startWithAdmin;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -55,6 +58,24 @@ class _HomeShellState extends State<HomeShell> {
         ),
       );
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.startWithAdmin != oldWidget.startWithAdmin) {
+      setState(() {
+        _adminSelected = widget.startWithAdmin;
+      });
+    }
+    if (widget.initialIndex != oldWidget.initialIndex) {
+      setState(() {
+        _index = widget.initialIndex;
+        if (!widget.startWithAdmin) {
+          _adminSelected = false;
+        }
+      });
+    }
   }
 
   @override
@@ -88,10 +109,16 @@ class _HomeShellState extends State<HomeShell> {
     return _activeSessionIds[_currentMode];
   }
 
+  void _closeDrawerIfOpen() {
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      _scaffoldKey.currentState?.closeDrawer();
+    }
+  }
+
   Widget _currentScreen({VoidCallback? onMenuTap}) {
-    if (_adminSelected) return AdminPanelScreen(onMenuTap: onMenuTap);
-    return IndexedStack(
-      index: _index.clamp(0, 2),
+    final activeIndex = _adminSelected ? 3 : _index.clamp(0, 2);
+    return FadeIndexedStack(
+      index: activeIndex,
       children: [
         SmartRoutingScreen(
           key: _smartKey,
@@ -110,12 +137,18 @@ class _HomeShellState extends State<HomeShell> {
           onMenuTap: onMenuTap,
           onSessionChanged: (id) => setState(() => _activeSessionIds[ChatMode.offline] = id),
         ),
+        AdminPanelScreen(onMenuTap: onMenuTap),
       ],
     );
   }
 
   void _newChat() {
-    if (_adminSelected) return;
+    if (_adminSelected) {
+      setState(() {
+        _adminSelected = false;
+        _index = 0;
+      });
+    }
     switch (_index) {
       case 0:
         _smartKey.currentState?.startNewChat();
@@ -168,8 +201,31 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  void _logout() {
-    context.go('/login');
+  void _selectMode(int i) {
+    if (_index == i && !_adminSelected) return;
+    setState(() {
+      _index = i;
+      _adminSelected = false;
+    });
+  }
+
+  void _selectAdmin() {
+    if (_adminSelected) return;
+    setState(() {
+      _adminSelected = true;
+    });
+  }
+
+  void _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    await prefs.remove('userName');
+    await prefs.remove('userEmail');
+    await prefs.remove('userRole');
+    unawaited(ApiService.logoutUser());
+    if (mounted) {
+      context.go('/login');
+    }
   }
 
   @override
@@ -190,22 +246,9 @@ class _HomeShellState extends State<HomeShell> {
             activeSessionId: _activeSessionId,
             onSelectSession: _openSession,
             isDrawer: isMobile,
-            onSelect: (i) {
-              if (widget.startWithAdmin) {
-                context.go('/home');
-              } else {
-                setState(() {
-                  _index = i;
-                  _adminSelected = false;
-                });
-              }
-            },
-            onAdminTap: () {
-              if (!widget.startWithAdmin) {
-                context.go('/admin-panel');
-              }
-            },
-            onClose: isMobile ? () => Navigator.of(context).maybePop() : null,
+            onSelect: _selectMode,
+            onAdminTap: _selectAdmin,
+            onClose: isMobile ? _closeDrawerIfOpen : null,
           );
 
           if (isMobile) {
@@ -235,6 +278,67 @@ class _HomeShellState extends State<HomeShell> {
           );
         });
       },
+    );
+  }
+}
+
+/// Animated indexed stack that smoothly fades between screens.
+class FadeIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+  final Duration duration;
+
+  const FadeIndexedStack({
+    super.key,
+    required this.index,
+    required this.children,
+    this.duration = const Duration(milliseconds: 220),
+  });
+
+  @override
+  State<FadeIndexedStack> createState() => _FadeIndexedStackState();
+}
+
+class _FadeIndexedStackState extends State<FadeIndexedStack> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.index;
+    _controller = AnimationController(
+      vsync: this,
+      duration: widget.duration,
+      value: 1.0,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant FadeIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.index != oldWidget.index) {
+      setState(() {
+        _currentIndex = widget.index;
+      });
+      _controller.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+      child: IndexedStack(
+        index: _currentIndex,
+        children: widget.children,
+      ),
     );
   }
 }

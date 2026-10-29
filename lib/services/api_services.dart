@@ -228,37 +228,40 @@ class ApiService{
     }
 
     static Future<bool> isUserLoggedIn() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? token = prefs.getString('token');
-    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? token = prefs.getString('token');
+      if (token == null || token.trim().isEmpty) {
+        return false;
+      }
+      try {
         final response = await http.get(
-        Uri.parse('$baseUrl/auth/me'),
-        headers: {
+          Uri.parse('$baseUrl/auth/me'),
+          headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'Authorization': 'Bearer $token',
-        },
-        );
+          },
+        ).timeout(const Duration(seconds: 3));
         if (response.statusCode == 200 || response.statusCode == 201) {
-            var responseData = json.decode(response.body);
-            final prefs = await SharedPreferences.getInstance();
-            var user = responseData['user'] ?? responseData;
-            if (user['name'] != null) await prefs.setString('userName', user['name'].toString());
-            if (user['email'] != null) await prefs.setString('userEmail', user['email'].toString());
-            String? role = user['role']?.toString() ?? responseData['role']?.toString();
-            if (role != null) {
-                await prefs.setString('userRole', role);
-            }
-            print('User is logged in: ${response.body}');
-            return true;
+          var responseData = json.decode(response.body);
+          final prefs = await SharedPreferences.getInstance();
+          var user = responseData['user'] ?? responseData;
+          if (user['name'] != null) await prefs.setString('userName', user['name'].toString());
+          if (user['email'] != null) await prefs.setString('userEmail', user['email'].toString());
+          String? role = user['role']?.toString() ?? responseData['role']?.toString();
+          if (role != null) {
+            await prefs.setString('userRole', role);
+          }
+          return true;
+        } else if (response.statusCode == 401 || response.statusCode == 403) {
+          return false;
         } else {
-            print('User is not logged in: ${response.body}');
-            return false;
+          return true;
         }
-    } catch (e) {
-        print('Error: $e');
-        return false;
-    }
+      } catch (e) {
+        // If server is unreachable or timeout occurs, retain session if token is present
+        return true;
+      }
     }
     
     static Future<bool> logoutUser() async {

@@ -4,8 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../app_theme.dart';
 import '../models.dart';
-import '../services/api_services.dart';
-import 'package:go_router/go_router.dart';
 
 class NavItem {
   final IconData icon;
@@ -344,7 +342,7 @@ class _SidebarState extends State<Sidebar> {
               selected: widget.adminSelected,
               isCollapsed: effectiveCollapsed,
               onTap: () {
-                context.go('/admin-panel');
+                widget.onAdminTap();
                 widget.onClose?.call();
               },
             ),
@@ -362,14 +360,9 @@ class _SidebarState extends State<Sidebar> {
 
     final innerContent = widget.isDrawer
         ? sidebarContent
-        : OverflowBox(
-            minWidth: targetWidth,
-            maxWidth: targetWidth,
-            alignment: Alignment.topLeft,
-            child: SizedBox(
-              width: targetWidth,
-              child: sidebarContent,
-            ),
+        : SizedBox(
+            width: targetWidth,
+            child: sidebarContent,
           );
 
     return AnimatedContainer(
@@ -805,11 +798,7 @@ class _AccountTileState extends State<_AccountTile> {
           child: Tooltip(
             message: '$userName\n$email',
             child: InkWell(
-              onTap: () async {
-                bool success = await ApiService.logoutUser();
-                if (success && context.mounted) {
-                  context.go('/login');
-                }
+              onTap: () {
                 widget.onLogout();
               },
               borderRadius: BorderRadius.circular(16),
@@ -884,11 +873,7 @@ class _AccountTileState extends State<_AccountTile> {
           ),
           IconButton(
             tooltip: 'Logout',
-            onPressed: () async {
-              bool success = await ApiService.logoutUser();
-              if (success && context.mounted) {
-                context.go('/login');
-              }
+            onPressed: () {
               widget.onLogout();
             },
             iconSize: 16,
@@ -1057,6 +1042,8 @@ class _NavTileState extends State<_NavTile> with SingleTickerProviderStateMixin 
                   hoverColor: isDark
                       ? Colors.white.withValues(alpha: 0.06)
                       : Colors.black.withValues(alpha: 0.05),
+                  splashColor: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                  highlightColor: const Color(0xFFEF4444).withValues(alpha: 0.06),
                   child: Container(
                     width: 44,
                     height: 38,
@@ -1099,6 +1086,8 @@ class _NavTileState extends State<_NavTile> with SingleTickerProviderStateMixin 
             hoverColor: isDark
                 ? Colors.white.withValues(alpha: 0.05)
                 : Colors.black.withValues(alpha: 0.04),
+            splashColor: const Color(0xFFEF4444).withValues(alpha: 0.12),
+            highlightColor: const Color(0xFFEF4444).withValues(alpha: 0.06),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7.5),
               child: Row(
